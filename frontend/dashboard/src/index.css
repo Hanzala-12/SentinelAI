@@ -1,0 +1,53 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #f4f6f8;
+  --bg-soft: #e6ebf0;
+  --surface: #ffffff;
+  --surface-2: #f9fbfd;
+  --text: #17212b;
+  --text-muted: #556270;
+  --border: #d7dfe7;
+  --brand: #0f5f8f;
+  --brand-soft: #e1eef7;
+  --danger: #a12626;
+  --danger-soft: #fde8e8;
+  --warn: #8a4d00;
+  --warn-soft: #fff3de;
+  --success: #1c6b45;
+  --success-soft: #dff5e8;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  color: var(--text);
+  font-family: 'IBM Plex Sans', 'Segoe UI', Tahoma, sans-serif;
+  background:
+    radial-gradient(circle at top right, rgba(15, 95, 143, 0.08), transparent 26%),
+    radial-gradient(circle at top left, rgba(28, 107, 69, 0.06), transparent 20%),
+    linear-gradient(180deg, var(--bg) 0%, #edf1f5 100%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+code,
+.font-mono {
+  font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.soft-panel {
+  border: 1px solid var(--border);
+  background: linear-gradient(180deg, var(--surface) 0%, var(--surface-2) 100%);
+}

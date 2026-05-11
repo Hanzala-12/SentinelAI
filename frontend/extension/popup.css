@@ -1,0 +1,136 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+  width: 380px;
+  background:
+    radial-gradient(circle at top, rgba(54, 211, 153, 0.18), transparent 30%),
+    linear-gradient(180deg, #08111f 0%, #0b1526 100%);
+  color: #eef5ff;
+}
+
+.shell {
+  padding: 14px;
+}
+
+.hero h1 {
+  margin: 6px 0;
+  font-size: 20px;
+}
+
+.eyebrow {
+  margin: 0;
+  color: #6ee7b7;
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+.subtle,
+.status,
+li,
+label {
+  color: #9cb0ce;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.panel,
+.score-card {
+  margin-top: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 14px;
+  box-shadow: 0 16px 40px rgba(4, 11, 22, 0.32);
+}
+
+.settings .field + .field {
+  margin-top: 10px;
+}
+
+.field label {
+  display: block;
+  margin-bottom: 6px;
+  color: #d7e6ff;
+  font-weight: 600;
+}
+
+input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #f8fbff;
+  padding: 11px 12px;
+  outline: none;
+}
+
+input:focus {
+  border-color: rgba(54, 211, 153, 0.35);
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+button {
+  width: 100%;
+  border: 0;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #36d399, #38bdf8);
+  color: #04111b;
+  font-weight: 700;
+  padding: 12px;
+  cursor: pointer;
+}
+
+button.secondary {
+  background: rgba(255, 255, 255, 0.08);
+  color: #eef5ff;
+}
+
+button.ghost {
+  background: transparent;
+  color: #d7e6ff;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+button:hover {
+  filter: brightness(1.05);
+}
+
+.score-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.label {
+  margin: 0;
+  font-size: 12px;
+  color: #7f95b8;
+}
+
+#riskScore {
+  font-size: 34px;
+}
+
+.badge {
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 12px;
+  background: rgba(54, 211, 153, 0.12);
+  color: #8ef0c0;
+}
+
+ul {
+  padding-left: 18px;
+  margin-bottom: 0;
+}
