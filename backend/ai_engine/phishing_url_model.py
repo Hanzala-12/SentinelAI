@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import re
+import threading
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
@@ -63,8 +64,9 @@ class UrlFeaturePack:
 
 
 class PhishingUrlFeatureExtractor:
-    def __init__(self, timeout: float = 5.0) -> None:
+    def __init__(self, timeout: float = 5.0, whois_timeout: float = 2.0) -> None:
         self.timeout = timeout
+        self.whois_timeout = whois_timeout
 
     def extract(self, url: str) -> UrlFeaturePack:
         normalized_url = self._normalize(url)
@@ -266,8 +268,27 @@ class PhishingUrlFeatureExtractor:
     def _safe_whois(self, hostname: str) -> Any | None:
         if not hostname:
             return None
+        if os.getenv("PHISHLENS_OFFLINE_EVAL", "0") == "1":
+            return None
+        result: dict[str, Any] = {"value": None}
+        error: dict[str, Exception] = {}
+
+        def _lookup() -> None:
+            try:
+                result["value"] = whois.whois(hostname)
+            except Exception as exc:  # pragma: no cover - defensive fallback
+                error["exc"] = exc
+
+        worker = threading.Thread(target=_lookup, daemon=True)
+        worker.start()
+        worker.join(self.whois_timeout)
+        if worker.is_alive():
+            logger.debug("WHOIS lookup timed out for host '%s' after %.2fs", hostname, self.whois_timeout)
+            return None
         try:
-            return whois.whois(hostname)
+            if "exc" in error:
+                raise error["exc"]
+            return result["value"]
         except Exception:
             return None
 
@@ -295,7 +316,7 @@ class PhishingUrlFeatureExtractor:
             response = requests.get(
                 url,
                 timeout=self.timeout,
-                headers={"User-Agent": "SentinelAI/1.0"},
+                headers={"User-Agent": "PhishLens/1.0"},
                 allow_redirects=True,
             )
             response.raise_for_status()
@@ -521,12 +542,12 @@ class PretrainedPhishingUrlModel:
         default_model_root = Path(__file__).resolve().parents[1] / "models" / "url"
         configured_model_path = Path(
             model_path
-            or os.getenv("SENTINELAI_URL_MODEL_PATH")
+            or os.getenv("PHISHLENS_URL_MODEL_PATH")
             or (default_model_root / "phishing_url_model_v1.pkl")
         )
         configured_metadata_path = Path(
             metadata_path
-            or os.getenv("SENTINELAI_URL_MODEL_METADATA_PATH")
+            or os.getenv("PHISHLENS_URL_MODEL_METADATA_PATH")
             or (default_model_root / "phishing_url_model_v1.json")
         )
         self.model_path = (

@@ -1,4 +1,4 @@
-# 📋 SENTINELAI ML UPGRADE - FINAL INVENTORY
+# 📋 PHISHLENS ML UPGRADE - FINAL INVENTORY
 
 ## Status: ✅ DELIVERY COMPLETE
 
@@ -15,7 +15,7 @@ All code, documentation, and guides have been created and are ready for integrat
 | `evaluation/utils/ml_feature_extractor.py` | Python Module | 300+ | ✅ Created | Extract 40+ statistical features from URLs |
 | `evaluation/utils/ml_model.py` | Python Module | 350+ | ✅ Created | ML pipeline with sklearn models |
 | `evaluation/utils/sampled_dataset_loader.py` | Python Module | 150+ | ✅ Created | Configurable dataset sampling |
-| `evaluation/notebooks/sentinelai_ml_pipeline_example.ipynb` | Jupyter Notebook | 40 cells | ✅ Created | Complete working example |
+| `evaluation/notebooks/phishlens_ml_pipeline_example.ipynb` | Jupyter Notebook | 40 cells | ✅ Created | Complete working example |
 
 **Total Code**: ~800 lines of production-ready Python
 
@@ -100,7 +100,7 @@ data = loader.load_with_sampling(sample_size=100, balance=True)
 - Configurable sample size
 - Handles 1M+ row datasets
 
-#### 4. `sentinelai_ml_pipeline_example.ipynb`
+#### 4. `phishlens_ml_pipeline_example.ipynb`
 **Complete working notebook with**:
 - Configuration section
 - Data loading
@@ -264,7 +264,7 @@ Before you start integrating, verify:
   - `NOTEBOOK_INTEGRATION_GUIDE.md` ✓
 
 - [ ] Example notebook exists:
-  - `evaluation/notebooks/sentinelai_ml_pipeline_example.ipynb` ✓
+  - `evaluation/notebooks/phishlens_ml_pipeline_example.ipynb` ✓
 
 - [ ] Existing files still work:
   - `evaluation/utils/unified_loader.py` ✓
@@ -287,7 +287,7 @@ Before you start integrating, verify:
 | Learn the solution | SOLUTION_SUMMARY.md | 10 min |
 | Review architecture | ML_UPGRADE_GUIDE.md | 10 min |
 | Integrate code | NOTEBOOK_INTEGRATION_GUIDE.md | 30 min |
-| Run & test | sentinelai_ml_pipeline_example.ipynb | 5 min |
+| Run & test | phishlens_ml_pipeline_example.ipynb | 5 min |
 | Verify metrics | Check recall > 0% | 5 min |
 
 ---
@@ -301,7 +301,7 @@ Before you start integrating, verify:
 | How does ML work? | ML_UPGRADE_GUIDE.md |
 | How do I integrate? | NOTEBOOK_INTEGRATION_GUIDE.md |
 | Where do I start? | START_HERE.md |
-| Does it really work? | sentinelai_ml_pipeline_example.ipynb |
+| Does it really work? | phishlens_ml_pipeline_example.ipynb |
 
 ---
 

@@ -203,7 +203,7 @@ def evaluate(corpus: list[CorpusItem], *, disable_interaction: bool = False) -> 
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run SentinelAI corpus calibration evaluation.")
+    parser = argparse.ArgumentParser(description="Run PhishLens corpus calibration evaluation.")
     parser.add_argument(
         "--corpus",
         type=Path,

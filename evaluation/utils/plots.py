@@ -25,7 +25,7 @@ def plot_confusion_matrix(confusion, output_path: str | Path) -> None:
         yticklabels=["Actual Benign", "Actual Phishing"],
         ax=ax,
     )
-    ax.set_title("SentinelAI Confusion Matrix")
+    ax.set_title("PhishLens Confusion Matrix")
     plt.tight_layout()
     fig.savefig(path, dpi=180)
     plt.close(fig)

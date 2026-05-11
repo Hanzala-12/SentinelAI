@@ -1,5 +1,16 @@
 import axios from 'axios'
 import { useEffect, useMemo, useState } from 'react'
+import {
+  CollapsibleBlock,
+  EvidenceCard,
+  InvestigationPanel,
+  KeyFindingList,
+  ScoreBadge,
+  SimpleIssue,
+  SimpleTimelineEvent,
+  TimelineFeed,
+  VerdictBadge,
+} from './components/investigation-ui'
 import { api, clearAuthToken, getAuthToken, setAuthToken } from './lib/api'
 
 type HealthState = {
@@ -148,6 +159,11 @@ type DashboardStats = {
   }
 }
 
+type HistoryDeleteResponse = {
+  deleted_count: number
+  remaining: number
+}
+
 type PageKey = 'Home' | 'Threat Report' | 'History' | 'Technical Analysis'
 
 const pages: PageKey[] = ['Home', 'Threat Report', 'History', 'Technical Analysis']
@@ -157,41 +173,34 @@ function formatTime(value: string | null): string {
   return new Date(value).toLocaleString()
 }
 
-function severityTone(severity: string): string {
+function riskBand(score: number): string {
+  if (score >= 70) return 'High Risk'
+  if (score >= 40) return 'Elevated Risk'
+  if (score >= 20) return 'Low Risk'
+  return 'Minimal Risk'
+}
+
+function severityWeight(severity: string): number {
   const normalized = severity.toLowerCase()
-  if (normalized === 'critical' || normalized === 'high') return 'border-red-300 bg-red-50 text-red-700'
-  if (normalized === 'medium') return 'border-amber-300 bg-amber-50 text-amber-700'
-  if (normalized === 'low') return 'border-emerald-300 bg-emerald-50 text-emerald-700'
-  return 'border-slate-300 bg-slate-100 text-slate-700'
+  if (normalized === 'critical') return 5
+  if (normalized === 'high') return 4
+  if (normalized === 'medium') return 3
+  if (normalized === 'low') return 2
+  return 1
+}
+
+function summaryLine(text: string, maxLength = 120): string {
+  const clean = text.replace(/\s+/g, ' ').trim()
+  if (clean.length <= maxLength) return clean
+  return `${clean.slice(0, maxLength - 1)}…`
 }
 
 function classificationTone(classification: string): string {
-  if (classification === 'Critical' || classification === 'Dangerous') return 'border-red-300 bg-red-50 text-red-700'
-  if (classification === 'Suspicious') return 'border-amber-300 bg-amber-50 text-amber-700'
-  return 'border-emerald-300 bg-emerald-50 text-emerald-700'
-}
-
-function stageLabel(stage: string): string {
-  const map: Record<string, string> = {
-    collection: 'Collection',
-    'url-analysis': 'URL Analysis',
-    'delivery-analysis': 'Delivery Path',
-    'dom-analysis': 'DOM Behavior',
-    'content-analysis': 'Content Analysis',
-    'model-correlation': 'Model Correlation',
-    'intel-correlation': 'Intel Correlation',
-    'interaction-simulation': 'Interaction Probe',
-    reasoning: 'Reasoning',
-    escalation: 'Escalation',
-    conclusion: 'Conclusion',
-  }
-  return map[stage] ?? stage
-}
-
-function confidenceTone(confidence: number): string {
-  if (confidence >= 0.85) return 'text-red-700'
-  if (confidence >= 0.65) return 'text-amber-700'
-  return 'text-slate-700'
+  const normalized = classification.toLowerCase()
+  if (normalized === 'critical' || normalized === 'dangerous') return 'tone-danger'
+  if (normalized === 'suspicious') return 'tone-suspicious'
+  if (normalized === 'safe') return 'tone-safe'
+  return 'tone-neutral'
 }
 
 function extractApiErrorDetail(payload: unknown): string | null {
@@ -207,6 +216,21 @@ function extractApiErrorDetail(payload: unknown): string | null {
     }
   }
   return null
+}
+
+function EmptyState({
+  title,
+  description,
+}: {
+  title: string
+  description: string
+}) {
+  return (
+    <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-5 py-10 text-center">
+      <h3 className="text-base font-semibold text-slate-900">{title}</h3>
+      <p className="mt-2 text-sm text-slate-600">{description}</p>
+    </div>
+  )
 }
 
 export default function App() {
@@ -225,6 +249,10 @@ export default function App() {
   const [history, setHistory] = useState<HistoryItem[]>([])
   const [historyQuery, setHistoryQuery] = useState('')
   const [historyFilter, setHistoryFilter] = useState<'all' | 'Safe' | 'Suspicious' | 'Dangerous' | 'Critical'>('all')
+  const [historySelection, setHistorySelection] = useState<number[]>([])
+  const [historyActionBusy, setHistoryActionBusy] = useState(false)
+  const [historyActionError, setHistoryActionError] = useState<string | null>(null)
+  const [historyActionMessage, setHistoryActionMessage] = useState<string | null>(null)
 
   const [scanUrl, setScanUrl] = useState('https://example.com')
   const [scanText, setScanText] = useState('')
@@ -259,10 +287,18 @@ export default function App() {
     if (!token) {
       setDashboardStats(null)
       setHistory([])
+      setHistorySelection([])
+      setHistoryActionError(null)
+      setHistoryActionMessage(null)
       return
     }
     void refreshWorkspace()
   }, [token])
+
+  useEffect(() => {
+    const ids = new Set(history.map((item) => item.id))
+    setHistorySelection((previous) => previous.filter((id) => ids.has(id)))
+  }, [history])
 
   const refreshWorkspace = async () => {
     try {
@@ -323,7 +359,12 @@ export default function App() {
     setScanError(null)
     setDeepAnalysis('')
     try {
-      const normalizedUrl = scanUrl.match(/^https?:\/\//i) ? scanUrl.trim() : `https://${scanUrl.trim()}`
+      const trimmedUrl = scanUrl.trim()
+      if (!trimmedUrl) {
+        setScanError('Please enter a URL before scanning.')
+        return
+      }
+      const normalizedUrl = trimmedUrl.match(/^https?:\/\//i) ? trimmedUrl : `https://${trimmedUrl}`
       const textPayload = scanText.trim()
       const htmlPayload = scanHtml.trim()
       const endpoint = textPayload ? '/api/v1/scan/page' : '/api/v1/scan/url'
@@ -339,7 +380,7 @@ export default function App() {
             page_html: htmlPayload || undefined,
           }
 
-      const response = await api.post<ScanResponse>(endpoint, body)
+      const response = await api.post<ScanResponse>(endpoint, body, { timeout: 90000 })
       setLatestScan(response.data)
       setLatestAnalyzedUrl(normalizedUrl)
       setLatestTextPayload(textPayload)
@@ -347,8 +388,16 @@ export default function App() {
       await refreshWorkspace()
     } catch (error) {
       if (axios.isAxiosError(error)) {
-        const detail = typeof error.response?.data?.detail === 'string' ? error.response.data.detail : null
-        setScanError(detail ?? 'Scan failed. Verify the URL and retry.')
+        if (error.code === 'ECONNABORTED') {
+          setScanError('Scan timed out after 90 seconds. The target may be slow or unreachable; retry in a moment.')
+        } else if (!error.response) {
+          setScanError(
+            'Could not reach the API server. Confirm backend is running at http://localhost:8000 and CORS origin matches the dashboard URL.',
+          )
+        } else {
+          const detail = extractApiErrorDetail(error.response?.data)
+          setScanError(detail ?? 'Scan failed. Verify the URL and retry.')
+        }
       } else {
         setScanError('Scan failed.')
       }
@@ -367,8 +416,13 @@ export default function App() {
         risk_score: Math.min(10, Math.max(0, Math.round(latestScan.risk_score / 10))),
       })
       setDeepAnalysis(response.data.explanation)
-    } catch {
-      setDeepAnalysis('Deep AI narrative is unavailable because OpenRouter is not configured or returned an error.')
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        const detail = extractApiErrorDetail(error.response?.data)
+        setDeepAnalysis(detail ?? 'Deep AI narrative is unavailable. Check OpenRouter configuration and retry.')
+      } else {
+        setDeepAnalysis('Deep AI narrative is unavailable. Check OpenRouter configuration and retry.')
+      }
     } finally {
       setDeepBusy(false)
     }
@@ -378,48 +432,239 @@ export default function App() {
     return history.filter((item) => {
       const matchesFilter = historyFilter === 'all' || item.classification === historyFilter
       const query = historyQuery.trim().toLowerCase()
-      const matchesQuery = !query || (item.url ?? '').toLowerCase().includes(query) || item.explanation.toLowerCase().includes(query)
+      const matchesQuery =
+        !query || (item.url ?? '').toLowerCase().includes(query) || item.explanation.toLowerCase().includes(query)
       return matchesFilter && matchesQuery
     })
   }, [history, historyFilter, historyQuery])
+
+  const filteredHistoryIds = useMemo(() => filteredHistory.map((item) => item.id), [filteredHistory])
+
+  const selectedVisibleCount = useMemo(
+    () => filteredHistoryIds.filter((id) => historySelection.includes(id)).length,
+    [filteredHistoryIds, historySelection],
+  )
+
+  const allVisibleSelected = filteredHistoryIds.length > 0 && selectedVisibleCount === filteredHistoryIds.length
 
   const classificationMap = useMemo(() => {
     return new Map((dashboardStats?.classification_breakdown ?? []).map((row) => [row.classification, row.count]))
   }, [dashboardStats])
 
+  const keyFindings = useMemo(() => {
+    if (!latestScan) return []
+    const candidates: string[] = []
+    const evidence = [...(latestScan.threat_report?.evidence ?? [])].sort((left, right) => {
+      const sevDelta = severityWeight(right.severity) - severityWeight(left.severity)
+      if (sevDelta !== 0) return sevDelta
+      return (right.score_impact ?? 0) - (left.score_impact ?? 0)
+    })
+    evidence.slice(0, 5).forEach((item) => {
+      candidates.push(summaryLine(`${item.title}: ${item.description}`))
+    })
+    if (!candidates.length) {
+      latestScan.detected_issues.slice(0, 5).forEach((item) => {
+        candidates.push(summaryLine(`${item.title}: ${item.description}`))
+      })
+    }
+    if (latestScan.threat_report?.fetch_error) {
+      candidates.push(summaryLine(`Collection note: ${latestScan.threat_report.fetch_error}`))
+    }
+    if (!candidates.length) {
+      candidates.push('No significant phishing behavior indicators were detected in this investigation run.')
+    }
+    return Array.from(new Set(candidates)).slice(0, 5)
+  }, [latestScan])
+
+  const investigationIssues = useMemo((): SimpleIssue[] => {
+    if (!latestScan) return []
+    const reportEvidence = latestScan.threat_report?.evidence ?? []
+    if (reportEvidence.length > 0) {
+      return [...reportEvidence]
+        .sort((left, right) => {
+          const sevDelta = severityWeight(right.severity) - severityWeight(left.severity)
+          if (sevDelta !== 0) return sevDelta
+          return (right.score_impact ?? 0) - (left.score_impact ?? 0)
+        })
+        .slice(0, 10)
+    }
+    return latestScan.detected_issues.map((item) => ({
+      ...item,
+      confidence: latestScan.confidence,
+      escalation_contribution: 0,
+    }))
+  }, [latestScan])
+
+  const timelineEvents = useMemo((): SimpleTimelineEvent[] => {
+    return (latestScan?.threat_report?.timeline ?? []).map((event) => ({
+      event_id: event.event_id,
+      timestamp: event.timestamp,
+      title: event.title,
+      detail: summaryLine(event.detail, 160),
+      severity: event.severity,
+      score_delta: event.score_delta,
+      confidence_before: event.confidence_before,
+      confidence_after: event.confidence_after,
+    }))
+  }, [latestScan])
+
+  const behavioralFindings = useMemo(() => {
+    return (latestScan?.technical_findings?.dom_signals ?? []).filter(
+      (signal) => signal.code.startsWith('interaction-') || signal.category.includes('behavior') || signal.category.includes('credential'),
+    )
+  }, [latestScan])
+
+  const attackPatterns = useMemo(() => {
+    const reportPatterns = latestScan?.threat_report?.attack_patterns ?? []
+    if (reportPatterns.length > 0) return reportPatterns
+    return latestScan?.technical_findings?.attack_patterns ?? []
+  }, [latestScan])
+
+  const socialEngineeringEntries = useMemo(() => {
+    const reportEntries = Object.entries(latestScan?.threat_report?.social_engineering_analysis ?? {})
+    if (reportEntries.length > 0) return reportEntries
+    return Object.entries(latestScan?.technical_findings?.social_engineering_analysis ?? {})
+  }, [latestScan])
+
+  const threatIntelSignals = useMemo(() => latestScan?.technical_findings?.reputation_signals ?? [], [latestScan])
+
+  const recommendedActions = useMemo(() => {
+    const actions = latestScan?.threat_report?.recommended_actions ?? []
+    if (actions.length > 0) return actions.slice(0, 4)
+    if (!latestScan) return []
+    if (latestScan.classification === 'Safe') return ['No immediate action required. Continue passive monitoring.']
+    return ['Escalate for analyst review.', 'Validate domain ownership and redirect behavior.', 'Block user interaction until verified.']
+  }, [latestScan])
+
+  const toggleHistorySelection = (scanId: number) => {
+    setHistorySelection((previous) => (previous.includes(scanId) ? previous.filter((id) => id !== scanId) : [...previous, scanId]))
+  }
+
+  const toggleSelectAllVisible = () => {
+    setHistorySelection((previous) => {
+      if (allVisibleSelected) {
+        return previous.filter((id) => !filteredHistoryIds.includes(id))
+      }
+      const merged = new Set(previous)
+      filteredHistoryIds.forEach((id) => merged.add(id))
+      return Array.from(merged)
+    })
+  }
+
+  const deleteSelectedHistory = async () => {
+    if (!historySelection.length) return
+    const confirmed = window.confirm(
+      `Delete ${historySelection.length} selected history entr${historySelection.length === 1 ? 'y' : 'ies'}?`,
+    )
+    if (!confirmed) return
+    setHistoryActionBusy(true)
+    setHistoryActionError(null)
+    setHistoryActionMessage(null)
+    try {
+      const response = await api.post<HistoryDeleteResponse>('/api/v1/history/delete', {
+        ids: historySelection,
+        delete_all: false,
+      })
+      setHistoryActionMessage(`Deleted ${response.data.deleted_count} entr${response.data.deleted_count === 1 ? 'y' : 'ies'}.`)
+      setHistorySelection([])
+      await refreshWorkspace()
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        const detail = extractApiErrorDetail(error.response?.data)
+        setHistoryActionError(detail ?? 'Failed to delete selected history items.')
+      } else {
+        setHistoryActionError('Failed to delete selected history items.')
+      }
+    } finally {
+      setHistoryActionBusy(false)
+    }
+  }
+
+  const deleteAllHistory = async () => {
+    if (!history.length) return
+    const confirmed = window.confirm('Delete all history results? This cannot be undone.')
+    if (!confirmed) return
+    setHistoryActionBusy(true)
+    setHistoryActionError(null)
+    setHistoryActionMessage(null)
+    try {
+      const response = await api.post<HistoryDeleteResponse>('/api/v1/history/delete', {
+        ids: [],
+        delete_all: true,
+      })
+      setHistoryActionMessage(`Deleted ${response.data.deleted_count} entr${response.data.deleted_count === 1 ? 'y' : 'ies'}.`)
+      setHistorySelection([])
+      await refreshWorkspace()
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        const detail = extractApiErrorDetail(error.response?.data)
+        setHistoryActionError(detail ?? 'Failed to delete history.')
+      } else {
+        setHistoryActionError('Failed to delete history.')
+      }
+    } finally {
+      setHistoryActionBusy(false)
+    }
+  }
+
+  const deleteSingleHistory = async (scanId: number) => {
+    const confirmed = window.confirm('Delete this history result?')
+    if (!confirmed) return
+    setHistoryActionBusy(true)
+    setHistoryActionError(null)
+    setHistoryActionMessage(null)
+    try {
+      await api.delete(`/api/v1/history/${scanId}`)
+      setHistoryActionMessage('Deleted 1 entry.')
+      setHistorySelection((previous) => previous.filter((id) => id !== scanId))
+      await refreshWorkspace()
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        const detail = extractApiErrorDetail(error.response?.data)
+        setHistoryActionError(detail ?? 'Failed to delete history entry.')
+      } else {
+        setHistoryActionError('Failed to delete history entry.')
+      }
+    } finally {
+      setHistoryActionBusy(false)
+    }
+  }
+
   if (!token) {
     return (
       <main className="min-h-screen px-5 py-10">
-        <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-[1.15fr_0.85fr]">
-          <section className="soft-panel rounded-3xl p-8 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">SentinelAI</p>
-            <h1 className="mt-4 text-4xl font-semibold tracking-tight text-slate-900">Intelligent Threat Reasoning and Phishing Analysis</h1>
-            <p className="mt-5 max-w-2xl text-sm leading-7 text-slate-600">
-              Investigate suspicious URLs and webpage content using structured signal extraction, threat reasoning, and explainable evidence-driven reports.
+        <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+          <section className="soft-panel rounded-3xl p-8">
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">PhishLens</p>
+            <h1 className="mt-4 text-4xl font-semibold tracking-tight text-slate-900">
+              Investigation-Grade Phishing Analysis
+            </h1>
+            <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-600">
+              Structured URL and behavioral analysis designed for quick triage, clear evidence review, and explainable threat reasoning.
             </p>
-            <div className="mt-8 grid gap-4 md:grid-cols-2">
-              <article className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <p className="text-xs uppercase tracking-[0.22em] text-slate-500">Core Engine</p>
-                <p className="mt-2 text-sm font-medium text-slate-800">URL, DOM, content, and reputation signals are correlated into a transparent risk model.</p>
-              </article>
-              <article className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <p className="text-xs uppercase tracking-[0.22em] text-slate-500">Explainability</p>
-                <p className="mt-2 text-sm font-medium text-slate-800">Every score is linked to concrete indicators and analyst-relevant remediation actions.</p>
-              </article>
+            <div className="mt-8 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Threat Overview</p>
+                <p className="mt-2 text-sm text-slate-700">Risk verdict, confidence, and priority actions are surfaced first.</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Evidence Chain</p>
+                <p className="mt-2 text-sm text-slate-700">Analyst details stay expandable so normal workflows remain focused.</p>
+              </div>
             </div>
           </section>
 
-          <section className="soft-panel rounded-3xl p-8 shadow-sm">
-            <div className="grid grid-cols-2 gap-2 rounded-2xl bg-slate-100 p-1">
+          <section className="soft-panel rounded-3xl p-8">
+            <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1">
               <button
                 onClick={() => setAuthMode('login')}
-                className={`rounded-xl px-3 py-2 text-sm font-medium ${authMode === 'login' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'}`}
+                className={`rounded-lg px-3 py-2 text-sm font-medium ${authMode === 'login' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'}`}
               >
                 Login
               </button>
               <button
                 onClick={() => setAuthMode('register')}
-                className={`rounded-xl px-3 py-2 text-sm font-medium ${authMode === 'register' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'}`}
+                className={`rounded-lg px-3 py-2 text-sm font-medium ${authMode === 'register' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'}`}
               >
                 Register
               </button>
@@ -443,13 +688,11 @@ export default function App() {
                 className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none focus:border-sky-500"
               />
             </label>
-
             {authError && <p className="mt-3 text-sm text-red-700">{authError}</p>}
-
             <button
               onClick={handleAuth}
               disabled={authBusy}
-              className="mt-6 w-full rounded-xl bg-sky-700 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
+              className="mt-6 w-full rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
             >
               {authBusy ? 'Authenticating...' : authMode === 'login' ? 'Sign in' : 'Create account'}
             </button>
@@ -462,38 +705,32 @@ export default function App() {
   return (
     <main className="min-h-screen px-5 py-6">
       <div className="mx-auto flex max-w-7xl flex-col gap-5">
-        <header className="soft-panel rounded-3xl p-5 shadow-sm">
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+        <header className="soft-panel rounded-2xl p-5">
+          <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-slate-500">SentinelAI</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.26em] text-slate-500">PhishLens</p>
               <h1 className="mt-2 text-2xl font-semibold text-slate-900">Threat Reasoning Console</h1>
-              <p className="mt-2 text-sm text-slate-600">Evidence-focused phishing analysis with transparent scoring and investigation outputs.</p>
+              <p className="mt-2 text-sm text-slate-600">Complex intelligence underneath. Simple investigation flow on top.</p>
             </div>
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Runtime</p>
-                <p className="mt-1 text-sm font-semibold text-slate-900">{healthLoading ? 'Checking' : health ? 'Online' : 'Offline'}</p>
-              </div>
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Total Scans</p>
-                <p className="mt-1 text-sm font-semibold text-slate-900">{dashboardStats?.total_scans ?? 0}</p>
-              </div>
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">High Risk</p>
-                <p className="mt-1 text-sm font-semibold text-slate-900">
-                  {(classificationMap.get('Dangerous') ?? 0) + (classificationMap.get('Critical') ?? 0)}
-                </p>
-              </div>
+            <div className="grid gap-2 sm:grid-cols-3">
+              <ScoreBadge label="Runtime" value={healthLoading ? 'Checking' : health ? 'Online' : 'Offline'} />
+              <ScoreBadge label="Total Scans" value={`${dashboardStats?.total_scans ?? 0}`} />
+              <ScoreBadge
+                label="High Risk"
+                value={`${(classificationMap.get('Dangerous') ?? 0) + (classificationMap.get('Critical') ?? 0)}`}
+              />
             </div>
           </div>
         </header>
 
-        <nav className="soft-panel flex flex-wrap items-center gap-2 rounded-2xl p-2 shadow-sm">
+        <nav className="soft-panel flex flex-wrap items-center gap-2 rounded-2xl p-2">
           {pages.map((page) => (
             <button
               key={page}
               onClick={() => setActivePage(page)}
-              className={`rounded-xl px-4 py-2 text-sm font-medium ${activePage === page ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-100'}`}
+              className={`rounded-xl px-4 py-2 text-sm font-medium ${
+                activePage === page ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-100'
+              }`}
             >
               {page}
             </button>
@@ -501,7 +738,7 @@ export default function App() {
           <button
             onClick={() => setAnalystMode((value) => !value)}
             className={`rounded-xl border px-4 py-2 text-sm font-medium ${
-              analystMode ? 'border-sky-500 bg-sky-50 text-sky-800' : 'border-slate-300 text-slate-700 hover:bg-slate-100'
+              analystMode ? 'border-sky-300 bg-sky-50 text-sky-800' : 'border-slate-300 text-slate-700 hover:bg-slate-100'
             }`}
           >
             {analystMode ? 'Analyst Mode On' : 'Analyst Mode Off'}
@@ -515,311 +752,318 @@ export default function App() {
         </nav>
 
         {activePage === 'Home' && (
-          <section className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
-            <div className="soft-panel rounded-3xl p-6 shadow-sm">
-              <h2 className="text-lg font-semibold text-slate-900">Run Threat Analysis</h2>
-              <p className="mt-1 text-sm text-slate-600">Submit a URL with optional page content/HTML to extract phishing indicators and generate an explainable report.</p>
-
-              <label className="mt-5 block text-sm font-medium text-slate-700">
-                Target URL
-                <input
-                  value={scanUrl}
-                  onChange={(event) => setScanUrl(event.target.value)}
-                  className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none focus:border-sky-500"
-                />
-              </label>
-
-              <label className="mt-4 block text-sm font-medium text-slate-700">
-                Optional page text
-                <textarea
-                  rows={6}
-                  value={scanText}
-                  onChange={(event) => setScanText(event.target.value)}
-                  className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none focus:border-sky-500"
-                  placeholder="Paste suspicious message/content to improve scam language detection."
-                />
-              </label>
-
-              <label className="mt-4 block text-sm font-medium text-slate-700">
-                Optional page HTML
-                <textarea
-                  rows={5}
-                  value={scanHtml}
-                  onChange={(event) => setScanHtml(event.target.value)}
-                  className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 font-mono text-xs text-slate-800 outline-none focus:border-sky-500"
-                  placeholder="<html>...</html>"
-                />
-              </label>
-
-              <div className="mt-5 flex flex-wrap gap-3">
-                <button
-                  onClick={runScan}
-                  disabled={scanBusy}
-                  className="rounded-xl bg-sky-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
-                >
-                  {scanBusy ? 'Analyzing...' : 'Analyze Threat'}
-                </button>
-                <button
-                  onClick={() => {
-                    setScanText('')
-                    setScanHtml('')
-                  }}
-                  className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
-                >
-                  Clear Inputs
-                </button>
-              </div>
-              {scanError && <p className="mt-4 text-sm text-red-700">{scanError}</p>}
-            </div>
-
-            <div className="soft-panel rounded-3xl p-6 shadow-sm">
-              <h2 className="text-lg font-semibold text-slate-900">Latest Result</h2>
-              {!latestScan ? (
-                <p className="mt-3 text-sm text-slate-600">Run a scan to populate threat report and technical indicators.</p>
-              ) : (
-                <div className="mt-4 space-y-4">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${classificationTone(latestScan.classification)}`}>
-                      {latestScan.classification}
-                    </span>
-                    <span className="rounded-full border border-slate-300 bg-slate-100 px-3 py-1 text-xs text-slate-700">
-                      Risk {latestScan.risk_score}/100
-                    </span>
-                    <span className="rounded-full border border-slate-300 bg-slate-100 px-3 py-1 text-xs text-slate-700">
-                      Confidence {Math.round(latestScan.confidence * 100)}%
-                    </span>
-                  </div>
-                  <p className="text-sm leading-6 text-slate-700">{latestScan.explanation.explanation}</p>
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                    <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Detected Patterns</p>
-                    <p className="mt-2 break-all font-mono text-xs text-slate-700">
-                      {latestScan.explanation.detected_patterns.length ? latestScan.explanation.detected_patterns.join(', ') : 'No strong pattern IDs'}
-                    </p>
-                  </div>
+          <section className="grid gap-5 xl:grid-cols-[1.25fr_0.75fr]">
+            <InvestigationPanel
+              title="Run Threat Analysis"
+              subtitle="Submit a URL with optional page text/HTML to generate a structured investigation report."
+            >
+              <div className="space-y-3">
+                <label className="block text-sm text-slate-700">
+                  Target URL
+                  <input
+                    value={scanUrl}
+                    onChange={(event) => setScanUrl(event.target.value)}
+                    className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none focus:border-sky-500"
+                    placeholder="https://target.example"
+                  />
+                </label>
+                <label className="block text-sm text-slate-700">
+                  Optional page text
+                  <textarea
+                    value={scanText}
+                    onChange={(event) => setScanText(event.target.value)}
+                    rows={4}
+                    className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none focus:border-sky-500"
+                    placeholder="Paste suspicious content for language signal analysis."
+                  />
+                </label>
+                <label className="block text-sm text-slate-700">
+                  Optional page HTML
+                  <textarea
+                    value={scanHtml}
+                    onChange={(event) => setScanHtml(event.target.value)}
+                    rows={4}
+                    className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none focus:border-sky-500"
+                    placeholder="<html>...</html>"
+                  />
+                </label>
+                <div className="flex flex-wrap gap-2">
                   <button
-                    onClick={() => setActivePage('Threat Report')}
-                    className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+                    onClick={runScan}
+                    disabled={scanBusy}
+                    className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
                   >
-                    Open Detailed Threat Report
+                    {scanBusy ? 'Analyzing…' : 'Analyze Threat'}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setScanText('')
+                      setScanHtml('')
+                      setScanError(null)
+                    }}
+                    className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+                  >
+                    Clear Inputs
                   </button>
                 </div>
-              )}
+                {scanError && <p className="text-sm text-red-700">{scanError}</p>}
+              </div>
+            </InvestigationPanel>
+
+            <div className="space-y-5">
+              <InvestigationPanel title="Latest Snapshot" subtitle="Immediate triage view from the most recent scan.">
+                {!latestScan ? (
+                  <p className="text-sm text-slate-500">No scan has been run yet.</p>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <VerdictBadge classification={latestScan.classification} />
+                      <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${classificationTone(latestScan.classification)}`}>
+                        {riskBand(latestScan.risk_score)}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <ScoreBadge label="Risk" value={`${latestScan.risk_score}/100`} />
+                      <ScoreBadge label="Confidence" value={`${Math.round(latestScan.confidence * 100)}%`} />
+                    </div>
+                    <p className="text-sm text-slate-700">{summaryLine(latestScan.explanation.explanation, 180)}</p>
+                  </div>
+                )}
+              </InvestigationPanel>
+
+              <InvestigationPanel title="Recent Investigations" subtitle="Latest investigations for quick resume.">
+                {!history.length ? (
+                  <p className="text-sm text-slate-500">No history entries yet.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {history.slice(0, 5).map((item) => (
+                      <article key={item.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="truncate text-sm font-medium text-slate-800">{item.url ?? 'Text-only scan'}</p>
+                          <span className={`rounded-full border px-2 py-0.5 text-[11px] ${classificationTone(item.classification)}`}>
+                            {item.classification}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-slate-500">{formatTime(item.created_at)} • {item.risk_score}/100</p>
+                      </article>
+                    ))}
+                  </div>
+                )}
+              </InvestigationPanel>
             </div>
           </section>
         )}
 
         {activePage === 'Threat Report' && (
-          <section className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
-            <div className="soft-panel rounded-3xl p-6 shadow-sm">
-              <h2 className="text-lg font-semibold text-slate-900">Threat Report</h2>
-              {!latestScan?.threat_report ? (
-                <p className="mt-3 text-sm text-slate-600">No threat report is available yet. Run a scan from Home first.</p>
-              ) : (
-                <div className="mt-4 space-y-4">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${classificationTone(latestScan.threat_report.threat_level)}`}>
-                      {latestScan.threat_report.threat_level}
-                    </span>
-                    <span className="rounded-full border border-slate-300 bg-slate-100 px-3 py-1 text-xs text-slate-700">
-                      Score {latestScan.risk_score}/100
-                    </span>
-                  </div>
-                  <p className="text-sm leading-6 text-slate-700">{latestScan.threat_report.executive_summary}</p>
-
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                    <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Threat Timeline</p>
-                    <div className="mt-3 space-y-3">
-                      {latestScan.threat_report.timeline?.length ? (
-                        latestScan.threat_report.timeline.map((event) => (
-                          <article key={event.event_id} className="rounded-xl border border-slate-200 bg-white p-3">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${severityTone(event.severity)}`}>
-                                {event.severity}
-                              </span>
-                              <span className="text-xs font-medium text-slate-700">{stageLabel(event.stage)}</span>
-                              <span className="font-mono text-[10px] text-slate-500">{new Date(event.timestamp).toLocaleTimeString()}</span>
-                            </div>
-                            <p className="mt-2 text-sm font-medium text-slate-800">{event.title}</p>
-                            <p className="mt-1 text-xs leading-5 text-slate-600">{event.detail}</p>
-                            <p className="mt-2 text-[11px] text-slate-600">
-                              Score {event.score_before}
-                              {' -> '}
-                              {event.score_after} ({event.classification_after})
-                            </p>
-                            <p className={`mt-1 text-[11px] ${confidenceTone(event.confidence_after)}`}>
-                              Confidence {Math.round(event.confidence_before * 100)}%
-                              {' -> '}
-                              {Math.round(event.confidence_after * 100)}%
-                            </p>
-                            {event.evidence_codes.length > 0 && (
-                              <p className="mt-1 font-mono text-[10px] text-slate-500">{event.evidence_codes.join(', ')}</p>
-                            )}
-                          </article>
-                        ))
-                      ) : (
-                        <p className="text-xs text-slate-500">Timeline is unavailable for this scan.</p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                    <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Reasoning Chain</p>
-                    <ul className="mt-2 space-y-2 text-sm text-slate-700">
-                      {latestScan.threat_report.reasoning_chain.map((reason, index) => (
-                        <li key={`${reason}-${index}`}>{reason}</li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                    <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Recommended Actions</p>
-                    <ul className="mt-2 space-y-2 text-sm text-slate-700">
-                      {latestScan.threat_report.recommended_actions.map((action, index) => (
-                        <li key={`${action}-${index}`}>{action}</li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                    <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Confidence Escalation View</p>
-                    <div className="mt-2 space-y-2">
-                      {latestScan.threat_report.timeline
-                        .filter((event) => event.stage === 'escalation' || event.stage === 'interaction-simulation' || event.stage === 'conclusion')
-                        .map((event) => (
-                          <div key={`${event.event_id}-confidence`} className="rounded-lg border border-slate-200 bg-white p-2">
-                            <p className="text-xs font-medium text-slate-800">{event.title}</p>
-                            <p className={`mt-1 text-[11px] ${confidenceTone(event.confidence_after)}`}>
-                              {new Date(event.timestamp).toLocaleTimeString()} | Score {event.score_after} | Confidence {Math.round(event.confidence_after * 100)}%
-                            </p>
-                          </div>
-                        ))}
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                    <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Attack Pattern Classification</p>
-                    {latestScan.threat_report.attack_patterns?.length ? (
-                      <div className="mt-2 grid gap-2">
-                        {latestScan.threat_report.attack_patterns.map((pattern) => (
-                          <article key={pattern.code} className="rounded-lg border border-slate-200 bg-white p-3">
-                            <div className="flex items-center justify-between gap-2">
-                              <p className="text-sm font-semibold text-slate-800">{pattern.title}</p>
-                              <span className="rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[10px] text-slate-700">
-                                {Math.round(pattern.confidence * 100)}%
-                              </span>
-                            </div>
-                            <p className="mt-1 text-xs text-slate-600">{pattern.description}</p>
-                            <p className="mt-1 font-mono text-[10px] text-slate-500">{pattern.evidence_codes.join(', ')}</p>
-                          </article>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="mt-2 text-xs text-slate-500">No dominant attack pattern labels were inferred.</p>
-                    )}
-                  </div>
-
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                    <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Social Engineering Analysis</p>
-                    <p className="mt-2 text-sm text-slate-700">
-                      {String(latestScan.threat_report.social_engineering_analysis?.narrative_summary ?? 'Narrative analysis unavailable.')}
-                    </p>
-                    <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-700">
-                      <p>Coercion Score: {String(latestScan.threat_report.social_engineering_analysis?.coercion_score ?? 'N/A')}</p>
-                      <p>Authority Impersonation: {String(latestScan.threat_report.social_engineering_analysis?.authority_impersonation ?? false)}</p>
-                      <p>Fear Coercion: {String(latestScan.threat_report.social_engineering_analysis?.fear_coercion ?? false)}</p>
-                      <p>Urgency Manipulation: {String(latestScan.threat_report.social_engineering_analysis?.urgency_manipulation ?? false)}</p>
-                    </div>
-                  </div>
-
-                  {latestScan.threat_report.fetch_error && (
-                    <p className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
-                      DOM fetch note: {latestScan.threat_report.fetch_error}
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-
-            <div className="soft-panel rounded-3xl p-6 shadow-sm">
-              <h2 className="text-lg font-semibold text-slate-900">Evidence Chain</h2>
-              {!latestScan?.threat_report ? (
-                <p className="mt-3 text-sm text-slate-600">Evidence appears after the first scan.</p>
-              ) : (
-                <div className="mt-4 space-y-4">
-                  {latestScan.threat_report.evidence.slice(0, 8).map((item) => (
-                    <article key={item.code} className="rounded-xl border border-slate-200 bg-white p-3">
+          <section className="space-y-5">
+            {!latestScan ? (
+              <EmptyState
+                title="No investigation loaded"
+                description="Run a scan from Home to populate the threat report and evidence chain."
+              />
+            ) : (
+              <>
+                <InvestigationPanel title="Threat Overview" subtitle="Primary verdict and investigation summary.">
+                  <div className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
+                    <div className="space-y-3">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${severityTone(item.severity)}`}>{item.severity}</span>
-                        <span className="font-mono text-[11px] text-slate-500">{item.code}</span>
+                        <VerdictBadge classification={latestScan.classification} />
+                        <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${classificationTone(latestScan.classification)}`}>
+                          {riskBand(latestScan.risk_score)}
+                        </span>
                       </div>
-                      <p className="mt-2 text-sm font-medium text-slate-800">{item.title}</p>
-                      <p className="mt-1 text-xs leading-5 text-slate-600">{item.description}</p>
-                      <p className="mt-2 text-[11px] text-slate-600">
-                        Source: {item.source} | Category: {item.category} | Impact: {item.score_impact}
+                      <div className="grid grid-cols-2 gap-2 sm:max-w-sm">
+                        <ScoreBadge label="Risk Score" value={`${latestScan.risk_score}/100`} />
+                        <ScoreBadge label="Confidence" value={`${Math.round(latestScan.confidence * 100)}%`} />
+                      </div>
+                      <p className="text-sm text-slate-700">
+                        {latestScan.threat_report?.executive_summary
+                          ? summaryLine(latestScan.threat_report.executive_summary, 300)
+                          : summaryLine(latestScan.explanation.explanation, 300)}
                       </p>
-                      <p className="mt-1 text-[11px] text-slate-600">
-                        Confidence: {Math.round(item.confidence * 100)}% | Reliability: {Math.round(item.reliability * 100)}% | Escalation: +{item.escalation_contribution}
-                      </p>
-                      {analystMode && (
-                        <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2">
-                          <p className="text-[11px] text-slate-700">Reasoning: {item.reasoning_context ?? 'N/A'}</p>
-                          <p className="mt-1 text-[11px] text-slate-700">Source Module: {item.source_module ?? 'N/A'}</p>
-                          {item.analyst_details && (
-                            <pre className="mt-1 overflow-x-auto whitespace-pre-wrap text-[10px] text-slate-600">
-                              {JSON.stringify(item.analyst_details, null, 2)}
-                            </pre>
-                          )}
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                        Target: <span className="font-mono">{latestAnalyzedUrl ?? latestScan.technical_findings?.normalized_url ?? 'N/A'}</span>
+                      </div>
+                    </div>
+                    <div className="space-y-3">
+                      <h4 className="text-sm font-semibold text-slate-900">Recommended Action</h4>
+                      <ul className="space-y-2">
+                        {recommendedActions.map((action, index) => (
+                          <li key={`${action}-${index}`} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
+                            {action}
+                          </li>
+                        ))}
+                      </ul>
+                      <button
+                        onClick={runDeepAnalysis}
+                        disabled={deepBusy}
+                        className="w-full rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-60"
+                      >
+                        {deepBusy ? 'Generating AI Narrative…' : 'Generate AI Narrative'}
+                      </button>
+                      {deepAnalysis && (
+                        <div className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-slate-700">
+                          {deepAnalysis}
                         </div>
                       )}
-                    </article>
-                  ))}
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                    <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Threat Intel Correlation</p>
-                    {latestScan.technical_findings?.reputation_signals.length ? (
-                      <div className="mt-2 space-y-2">
-                        {latestScan.technical_findings.reputation_signals.slice(0, 4).map((signal) => (
-                          <div key={signal.code} className="rounded-lg border border-slate-200 bg-white p-2">
-                            <p className="text-xs font-medium text-slate-800">{signal.title}</p>
-                            <p className="mt-1 text-[11px] text-slate-600">{signal.description}</p>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="mt-2 text-xs text-slate-500">No provider flags in this scan.</p>
-                    )}
+                    </div>
                   </div>
-                  <button
-                    onClick={runDeepAnalysis}
-                    disabled={deepBusy}
-                    className="w-full rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-60"
-                  >
-                    {deepBusy ? 'Generating AI narrative...' : 'Generate AI Narrative'}
-                  </button>
-                  {deepAnalysis && (
-                    <div className="rounded-xl border border-sky-200 bg-sky-50 p-3">
-                      <p className="text-xs uppercase tracking-[0.2em] text-sky-700">AI Summary</p>
-                      <p className="mt-2 text-sm leading-6 text-slate-700">{deepAnalysis}</p>
+                </InvestigationPanel>
+
+                <div className="grid gap-5 xl:grid-cols-2">
+                  <InvestigationPanel title="Why This Was Flagged" subtitle="Most important findings only.">
+                    <KeyFindingList items={keyFindings} />
+                  </InvestigationPanel>
+                  <InvestigationPanel title="Investigation Timeline" subtitle="Event feed with score and confidence change.">
+                    <TimelineFeed events={timelineEvents} />
+                  </InvestigationPanel>
+                </div>
+
+                <InvestigationPanel title="Evidence Summary" subtitle="Prioritized evidence cards with severity and confidence.">
+                  {!investigationIssues.length ? (
+                    <p className="text-sm text-slate-500">No evidence records were generated for this run.</p>
+                  ) : (
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {investigationIssues.map((issue) => (
+                        <EvidenceCard key={`${issue.code}-${issue.title}`} issue={issue} analystMode={analystMode} />
+                      ))}
                     </div>
                   )}
+                </InvestigationPanel>
+
+                <div className="grid gap-5 xl:grid-cols-3">
+                  <InvestigationPanel title="Behavioral Findings" subtitle="Interaction and DOM-driven signals.">
+                    {!behavioralFindings.length ? (
+                      <p className="text-sm text-slate-500">No behavioral phishing indicators were observed.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {behavioralFindings.slice(0, 8).map((signal) => (
+                          <article key={signal.code} className="rounded-xl border border-slate-200 bg-white p-3">
+                            <p className="text-sm font-semibold text-slate-900">{signal.title}</p>
+                            <p className="mt-1 text-sm text-slate-700">{summaryLine(signal.description, 130)}</p>
+                          </article>
+                        ))}
+                      </div>
+                    )}
+                  </InvestigationPanel>
+
+                  <InvestigationPanel title="Attack Patterns" subtitle="Mapped adversary behavior patterns.">
+                    {!attackPatterns.length ? (
+                      <p className="text-sm text-slate-500">No high-confidence attack patterns mapped.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {attackPatterns.map((pattern) => (
+                          <article key={pattern.code} className="rounded-xl border border-slate-200 bg-white p-3">
+                            <p className="text-sm font-semibold text-slate-900">{pattern.title}</p>
+                            <p className="mt-1 text-sm text-slate-700">{summaryLine(pattern.description, 120)}</p>
+                            <p className="mt-1 text-xs text-slate-500">Confidence {Math.round(pattern.confidence * 100)}%</p>
+                          </article>
+                        ))}
+                      </div>
+                    )}
+                  </InvestigationPanel>
+
+                  <InvestigationPanel title="Threat Intelligence" subtitle="External reputation and provider correlation.">
+                    {!threatIntelSignals.length ? (
+                      <p className="text-sm text-slate-500">No external provider alerts in this scan.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {threatIntelSignals.map((signal) => (
+                          <article key={`${signal.code}-${signal.title}`} className="rounded-xl border border-slate-200 bg-white p-3">
+                            <p className="text-sm font-semibold text-slate-900">{signal.title}</p>
+                            <p className="mt-1 text-sm text-slate-700">{summaryLine(signal.description, 120)}</p>
+                          </article>
+                        ))}
+                      </div>
+                    )}
+                  </InvestigationPanel>
                 </div>
-              )}
-            </div>
+
+                <InvestigationPanel title="Social Engineering Analysis" subtitle="Language and persuasion pattern interpretation.">
+                  {!socialEngineeringEntries.length ? (
+                    <p className="text-sm text-slate-500">No social engineering narrative details were produced.</p>
+                  ) : (
+                    <div className="grid gap-2 md:grid-cols-2">
+                      {socialEngineeringEntries.map(([key, value]) => (
+                        <article key={key} className="rounded-xl border border-slate-200 bg-white p-3">
+                          <p className="text-xs uppercase tracking-[0.14em] text-slate-500">{key.replace(/_/g, ' ')}</p>
+                          <p className="mt-1 text-sm text-slate-700">
+                            {typeof value === 'string' ? value : summaryLine(JSON.stringify(value), 140)}
+                          </p>
+                        </article>
+                      ))}
+                    </div>
+                  )}
+                </InvestigationPanel>
+
+                {analystMode && (
+                  <InvestigationPanel title="Analyst Details" subtitle="Expanded technical context and raw structures.">
+                    <div className="space-y-3">
+                      <CollapsibleBlock title="Reasoning Chain">
+                        <ul className="space-y-2">
+                          {(latestScan.threat_report?.reasoning_chain ?? []).map((line, index) => (
+                            <li key={`${line}-${index}`} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
+                              {line}
+                            </li>
+                          ))}
+                        </ul>
+                      </CollapsibleBlock>
+                      <CollapsibleBlock title="Score Breakdown (raw)">
+                        <pre className="overflow-x-auto whitespace-pre-wrap text-[11px] text-slate-700">
+                          {JSON.stringify(
+                            {
+                              component_scores: latestScan.threat_report?.component_scores ?? {},
+                              weighted_contributions: latestScan.threat_report?.weighted_contributions ?? {},
+                              source_breakdown: latestScan.source_breakdown ?? {},
+                            },
+                            null,
+                            2,
+                          )}
+                        </pre>
+                      </CollapsibleBlock>
+                      <CollapsibleBlock title="Technical Metadata">
+                        <pre className="overflow-x-auto whitespace-pre-wrap text-[11px] text-slate-700">
+                          {JSON.stringify(latestScan.technical_findings?.metadata ?? {}, null, 2)}
+                        </pre>
+                      </CollapsibleBlock>
+                    </div>
+                  </InvestigationPanel>
+                )}
+              </>
+            )}
           </section>
         )}
 
         {activePage === 'History' && (
-          <section className="soft-panel rounded-3xl p-6 shadow-sm">
+          <section className="soft-panel rounded-2xl p-5">
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div>
-                <h2 className="text-lg font-semibold text-slate-900">Scan History</h2>
+                <h2 className="text-lg font-semibold text-slate-900">Investigation History</h2>
                 <p className="text-sm text-slate-600">Review previous investigations and filter by risk classification.</p>
               </div>
-              <button
-                onClick={() => void refreshWorkspace()}
-                className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
-              >
-                Refresh
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => void refreshWorkspace()}
+                  disabled={historyActionBusy}
+                  className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-60"
+                >
+                  Refresh
+                </button>
+                <button
+                  onClick={() => void deleteSelectedHistory()}
+                  disabled={historyActionBusy || historySelection.length === 0}
+                  className="rounded-xl border border-red-300 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-100 disabled:opacity-60"
+                >
+                  Delete selected ({historySelection.length})
+                </button>
+                <button
+                  onClick={() => void deleteAllHistory()}
+                  disabled={historyActionBusy || history.length === 0}
+                  className="rounded-xl border border-red-300 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
+                >
+                  Delete all
+                </button>
+              </div>
             </div>
 
             <div className="mt-4 flex flex-wrap gap-3">
@@ -842,27 +1086,47 @@ export default function App() {
               </select>
             </div>
 
-            <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-200">
+            {historyActionMessage && <p className="mt-3 text-sm text-emerald-700">{historyActionMessage}</p>}
+            {historyActionError && <p className="mt-3 text-sm text-red-700">{historyActionError}</p>}
+
+            <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200">
               <table className="min-w-full bg-white text-sm">
                 <thead className="bg-slate-100 text-slate-700">
                   <tr>
+                    <th className="px-3 py-2 text-left">
+                      <input
+                        type="checkbox"
+                        checked={allVisibleSelected}
+                        onChange={toggleSelectAllVisible}
+                        aria-label="Select all visible history rows"
+                      />
+                    </th>
                     <th className="px-3 py-2 text-left">Time</th>
                     <th className="px-3 py-2 text-left">Target</th>
                     <th className="px-3 py-2 text-left">Type</th>
                     <th className="px-3 py-2 text-left">Risk</th>
                     <th className="px-3 py-2 text-left">Classification</th>
+                    <th className="px-3 py-2 text-left">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredHistory.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-4 text-slate-500" colSpan={5}>
-                        No scans match the current filter.
+                      <td className="px-3 py-4 text-slate-500" colSpan={7}>
+                        No investigations match the current filter.
                       </td>
                     </tr>
                   ) : (
                     filteredHistory.map((item) => (
                       <tr key={item.id} className="border-t border-slate-200">
+                        <td className="px-3 py-2 text-slate-600">
+                          <input
+                            type="checkbox"
+                            checked={historySelection.includes(item.id)}
+                            onChange={() => toggleHistorySelection(item.id)}
+                            aria-label={`Select history row ${item.id}`}
+                          />
+                        </td>
                         <td className="px-3 py-2 text-slate-600">{formatTime(item.created_at)}</td>
                         <td className="max-w-[420px] truncate px-3 py-2 text-slate-800">{item.url ?? 'Text-only scan'}</td>
                         <td className="px-3 py-2 text-slate-600">{item.scan_type}</td>
@@ -871,6 +1135,15 @@ export default function App() {
                           <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${classificationTone(item.classification)}`}>
                             {item.classification}
                           </span>
+                        </td>
+                        <td className="px-3 py-2">
+                          <button
+                            onClick={() => void deleteSingleHistory(item.id)}
+                            disabled={historyActionBusy}
+                            className="rounded-lg border border-red-300 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
+                          >
+                            Delete
+                          </button>
                         </td>
                       </tr>
                     ))
@@ -882,255 +1155,96 @@ export default function App() {
         )}
 
         {activePage === 'Technical Analysis' && (
-          <section className="grid gap-5 xl:grid-cols-[1fr_1fr]">
-            <div className="soft-panel rounded-3xl p-6 shadow-sm">
-              <h2 className="text-lg font-semibold text-slate-900">Risk Factor Breakdown</h2>
-              {!latestScan?.threat_report ? (
-                <p className="mt-3 text-sm text-slate-600">Run a scan to view score composition and indicator groups.</p>
-              ) : (
-                <div className="mt-4 space-y-4">
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    {Object.entries(latestScan.threat_report.component_scores).map(([key, value]) => (
-                      <div key={key} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-                        <p className="font-mono text-xs text-slate-500">{key}</p>
-                        <p className="mt-1 text-sm font-semibold text-slate-900">{value}/100</p>
-                      </div>
+          <section className="space-y-5">
+            {!latestScan?.technical_findings ? (
+              <EmptyState
+                title="No technical analysis loaded"
+                description="Run a scan to inspect URL, DOM, content, model, and interaction evidence groups."
+              />
+            ) : (
+              <>
+                <div className="grid gap-5 xl:grid-cols-3">
+                  <InvestigationPanel title="Technical Snapshot">
+                    <div className="space-y-2 text-sm text-slate-700">
+                      <p>
+                        Normalized URL: <span className="font-mono text-xs">{latestScan.technical_findings.normalized_url ?? 'N/A'}</span>
+                      </p>
+                      <p>Fetched HTML: {latestScan.technical_findings.fetched_html ? 'Yes' : 'No'}</p>
+                      <p>Redirect chain length: {latestScan.technical_findings.redirect_chain.length}</p>
+                    </div>
+                  </InvestigationPanel>
+                  <InvestigationPanel title="Signal Counts">
+                    <div className="grid grid-cols-2 gap-2">
+                      <ScoreBadge label="URL" value={`${latestScan.technical_findings.url_signals.length}`} />
+                      <ScoreBadge label="DOM" value={`${latestScan.technical_findings.dom_signals.length}`} />
+                      <ScoreBadge label="Content" value={`${latestScan.technical_findings.content_signals.length}`} />
+                      <ScoreBadge label="Reputation" value={`${latestScan.technical_findings.reputation_signals.length}`} />
+                    </div>
+                  </InvestigationPanel>
+                  <InvestigationPanel title="Interaction Replay">
+                    <p className="text-sm text-slate-700">{latestScan.technical_findings.interaction_events.length} captured steps</p>
+                  </InvestigationPanel>
+                </div>
+
+                <InvestigationPanel title="Technical Findings" subtitle="Grouped indicators with progressive disclosure.">
+                  <div className="space-y-3">
+                    {(
+                      [
+                        { label: 'URL Signals', signals: latestScan.technical_findings.url_signals },
+                        { label: 'DOM Signals', signals: latestScan.technical_findings.dom_signals },
+                        { label: 'Content Signals', signals: latestScan.technical_findings.content_signals },
+                        { label: 'Reputation Signals', signals: latestScan.technical_findings.reputation_signals },
+                        { label: 'Model Signals', signals: latestScan.technical_findings.model_signals },
+                      ] as Array<{ label: string; signals: EvidenceItem[] }>
+                    ).map((group) => (
+                      <CollapsibleBlock key={group.label} title={`${group.label} (${group.signals.length})`}>
+                        {!group.signals.length ? (
+                          <p className="text-sm text-slate-500">No indicators in this category.</p>
+                        ) : (
+                          <div className="grid gap-2 md:grid-cols-2">
+                            {group.signals.slice(0, 12).map((signal) => (
+                              <EvidenceCard key={`${group.label}-${signal.code}-${signal.title}`} issue={signal} analystMode={analystMode} />
+                            ))}
+                          </div>
+                        )}
+                      </CollapsibleBlock>
                     ))}
                   </div>
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                    <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Weighted Contributions</p>
-                    <div className="mt-2 space-y-2">
-                      {Object.entries(latestScan.threat_report.weighted_contributions).map(([key, value]) => (
-                        <div key={key}>
-                          <div className="flex items-center justify-between text-xs text-slate-600">
-                            <span className="font-mono">{key}</span>
-                            <span>{value.toFixed(1)} pts</span>
+                </InvestigationPanel>
+
+                <InvestigationPanel title="Investigation Timeline (Interaction)" subtitle="Replay events from controlled interaction simulation.">
+                  {!latestScan.technical_findings.interaction_events.length ? (
+                    <p className="text-sm text-slate-500">No interaction replay events were captured in this scan.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {latestScan.technical_findings.interaction_events.map((event) => (
+                        <article key={event.step_id} className="rounded-xl border border-slate-200 bg-white p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-sm font-semibold text-slate-900">{event.step_id} • {event.action}</p>
+                            <span className="text-xs text-slate-500">{new Date(event.timestamp).toLocaleTimeString()}</span>
                           </div>
-                          <div className="mt-1 h-2 w-full rounded-full bg-slate-200">
-                            <div
-                              className="h-2 rounded-full bg-sky-600"
-                              style={{ width: `${Math.min(100, value)}%` }}
-                            />
-                          </div>
-                        </div>
+                          <p className="mt-1 font-mono text-[11px] text-slate-600">{event.target}</p>
+                          <p className="mt-1 text-xs text-slate-600">
+                            {event.url_before} → {event.url_after}
+                          </p>
+                          {event.new_indicator_codes.length > 0 && (
+                            <p className="mt-1 text-xs text-slate-600">Indicators: {event.new_indicator_codes.join(', ')}</p>
+                          )}
+                          {analystMode && (
+                            <details className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2">
+                              <summary className="cursor-pointer text-xs font-medium text-slate-700">DOM mutations</summary>
+                              <pre className="mt-2 overflow-x-auto whitespace-pre-wrap text-[11px] text-slate-600">
+                                {JSON.stringify(event.dom_mutations, null, 2)}
+                              </pre>
+                            </details>
+                          )}
+                        </article>
                       ))}
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                    <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Severity Escalation Path</p>
-                    <div className="mt-2 space-y-2">
-                      {(latestScan.threat_report.timeline ?? [])
-                        .filter((event) => event.stage === 'escalation' || event.stage === 'conclusion')
-                        .map((event) => (
-                          <div key={event.event_id} className="rounded-lg border border-slate-200 bg-white p-2">
-                            <p className="text-xs font-medium text-slate-800">{event.title}</p>
-                            <p className="mt-1 text-[11px] text-slate-600">
-                              {new Date(event.timestamp).toLocaleTimeString()} | Score {event.score_after}
-                            </p>
-                          </div>
-                        ))}
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                    <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Indicators</p>
-                    <div className="mt-2 space-y-2 text-sm">
-                      {Object.entries(latestScan.threat_report.indicators).map(([source, codes]) => (
-                        <div key={source}>
-                          <p className="font-medium text-slate-700">{source}</p>
-                          <p className="font-mono text-xs text-slate-600">{codes.join(', ')}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="soft-panel rounded-3xl p-6 shadow-sm">
-              <h2 className="text-lg font-semibold text-slate-900">Technical Findings</h2>
-              {!latestScan?.technical_findings ? (
-                <p className="mt-3 text-sm text-slate-600">Technical findings are available after running a scan.</p>
-              ) : (
-                <div className="mt-4 space-y-4">
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
-                    <p>Normalized URL: <span className="font-mono">{latestScan.technical_findings.normalized_url ?? 'N/A'}</span></p>
-                    <p className="mt-1">Fetched HTML: {latestScan.technical_findings.fetched_html ? 'yes' : 'no'}</p>
-                    <p className="mt-1">Redirect Chain: {latestScan.technical_findings.redirect_chain.length || 0}</p>
-                  </div>
-
-                  {analystMode && (
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                      <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Calibration & Suppression Notes</p>
-                      {Array.isArray((latestScan.technical_findings.metadata?.suppressed_detections as Array<unknown> | undefined)) &&
-                      (latestScan.technical_findings.metadata?.suppressed_detections as Array<unknown>).length > 0 ? (
-                        <div className="mt-2 space-y-2">
-                          {(latestScan.technical_findings.metadata.suppressed_detections as Array<unknown>).map((item, idx) => (
-                            <div key={`suppression-${idx}`} className="rounded-lg border border-slate-200 bg-white p-2">
-                              <pre className="overflow-x-auto whitespace-pre-wrap text-[10px] text-slate-700">{JSON.stringify(item, null, 2)}</pre>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="mt-2 text-xs text-slate-500">No signal suppression adjustments recorded for this scan.</p>
-                      )}
-                      {Array.isArray((latestScan.technical_findings.metadata?.interaction_simulation as Record<string, unknown> | undefined)?.suppressed_interaction_indicators as Array<unknown> | undefined) &&
-                      ((latestScan.technical_findings.metadata?.interaction_simulation as Record<string, unknown>).suppressed_interaction_indicators as Array<unknown>).length > 0 && (
-                        <div className="mt-2 space-y-2">
-                          {((latestScan.technical_findings.metadata?.interaction_simulation as Record<string, unknown>).suppressed_interaction_indicators as Array<unknown>).map((item, idx) => (
-                            <div key={`interaction-suppression-${idx}`} className="rounded-lg border border-slate-200 bg-white p-2">
-                              <pre className="overflow-x-auto whitespace-pre-wrap text-[10px] text-slate-700">{JSON.stringify(item, null, 2)}</pre>
-                            </div>
-                          ))}
-                        </div>
-                      )}
                     </div>
                   )}
-
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                    <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Interaction Replay Timeline</p>
-                    {!latestScan.technical_findings.interaction_events?.length ? (
-                      <p className="mt-2 text-xs text-slate-500">No interaction replay events were captured in this scan.</p>
-                    ) : (
-                      <div className="mt-2 space-y-2">
-                        {latestScan.technical_findings.interaction_events.map((event) => (
-                          <article key={event.step_id} className="rounded-lg border border-slate-200 bg-white p-2">
-                            <p className="text-xs font-medium text-slate-800">
-                              {event.step_id} | {event.action} | {new Date(event.timestamp).toLocaleTimeString()}
-                            </p>
-                            <p className="mt-1 font-mono text-[10px] text-slate-600">{event.target}</p>
-                            <p className="mt-1 text-[11px] text-slate-600">
-                              {event.url_before} {' -> '} {event.url_after}
-                            </p>
-                            <p className={`mt-1 text-[11px] ${confidenceTone(event.confidence_after)}`}>
-                              Confidence after step: {Math.round(event.confidence_after * 100)}%
-                            </p>
-                            {event.new_indicator_codes.length > 0 && (
-                              <p className="mt-1 font-mono text-[10px] text-slate-500">{event.new_indicator_codes.join(', ')}</p>
-                            )}
-                          </article>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                    <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Behavioral Findings Panel</p>
-                    <div className="mt-2 space-y-2">
-                      {latestScan.technical_findings.dom_signals
-                        .filter((signal) => signal.code.startsWith('interaction-') || signal.category.includes('behavior'))
-                        .slice(0, 8)
-                        .map((signal) => (
-                          <div key={signal.code} className="rounded-lg border border-slate-200 bg-white p-2">
-                            <p className="text-xs font-medium text-slate-800">{signal.title}</p>
-                            <p className="mt-1 text-[11px] text-slate-600">{signal.description}</p>
-                          </div>
-                        ))}
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                    <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Dynamic Redirect Visualization</p>
-                    {!latestScan.technical_findings.interaction_events?.length ? (
-                      <p className="mt-2 text-xs text-slate-500">No dynamic redirect path observed.</p>
-                    ) : (
-                      <div className="mt-2 space-y-2">
-                        {latestScan.technical_findings.interaction_events
-                          .filter((event) => event.redirect_triggered)
-                          .map((event) => (
-                            <div key={`${event.step_id}-redirect`} className="rounded-lg border border-slate-200 bg-white p-2">
-                              <p className="text-xs font-medium text-slate-800">{event.step_id} redirect trigger</p>
-                              <p className="mt-1 font-mono text-[10px] text-slate-600">{event.url_before}</p>
-                              <p className="text-[10px] text-slate-500">to</p>
-                              <p className="font-mono text-[10px] text-slate-600">{event.url_after}</p>
-                            </div>
-                          ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                    <p className="text-xs uppercase tracking-[0.2em] text-slate-500">DOM Mutation Viewer</p>
-                    {!latestScan.technical_findings.interaction_events?.length ? (
-                      <p className="mt-2 text-xs text-slate-500">No mutation replay data available.</p>
-                    ) : (
-                      <div className="mt-2 space-y-2">
-                        {latestScan.technical_findings.interaction_events.map((event) => (
-                          <div key={`${event.step_id}-mutation`} className="rounded-lg border border-slate-200 bg-white p-2">
-                            <p className="text-xs font-medium text-slate-800">{event.step_id}</p>
-                            <p className="mt-1 text-[11px] text-slate-600">
-                              {Object.entries(event.dom_mutations)
-                                .map(([key, value]) => `${key}:${typeof value === 'string' ? value : JSON.stringify(value)}`)
-                                .join(' | ')}
-                            </p>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                    <p className="text-xs uppercase tracking-[0.2em] text-slate-500">DOM Findings Viewer</p>
-                    {!latestScan.technical_findings.dom_signals.length ? (
-                      <p className="mt-2 text-xs text-slate-500">No DOM findings captured.</p>
-                    ) : (
-                      <div className="mt-2 space-y-2">
-                        {latestScan.technical_findings.dom_signals.slice(0, 8).map((signal) => (
-                          <div key={signal.code} className="rounded-lg border border-slate-200 bg-white p-2">
-                            <p className="text-xs font-medium text-slate-800">{signal.title}</p>
-                            <p className="mt-1 text-[11px] text-slate-600">{signal.description}</p>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {(
-                    [
-                      { label: 'URL Signals', signals: latestScan.technical_findings.url_signals },
-                      { label: 'DOM Signals', signals: latestScan.technical_findings.dom_signals },
-                      { label: 'Content Signals', signals: latestScan.technical_findings.content_signals },
-                      { label: 'Reputation Signals', signals: latestScan.technical_findings.reputation_signals },
-                      { label: 'Model Signals', signals: latestScan.technical_findings.model_signals },
-                    ] as Array<{ label: string; signals: EvidenceItem[] }>
-                  ).map((group) => (
-                    <div key={group.label} className="rounded-xl border border-slate-200 bg-white p-3">
-                      <p className="text-sm font-semibold text-slate-800">{group.label}</p>
-                      {!Array.isArray(group.signals) || group.signals.length === 0 ? (
-                        <p className="mt-1 text-xs text-slate-500">No indicators in this category.</p>
-                      ) : (
-                        <ul className="mt-2 space-y-2">
-                          {group.signals.slice(0, 5).map((signal) => (
-                            <li key={`${signal.code}-${signal.title}`} className="text-xs text-slate-700">
-                              <span className={`mr-2 inline-block rounded-full border px-2 py-0.5 text-[10px] ${severityTone(signal.severity)}`}>
-                                {signal.severity}
-                              </span>
-                              <span className="font-medium">{signal.title}</span>
-                              <p className="mt-1 text-[11px] text-slate-600">{signal.description}</p>
-                              <p className="mt-1 text-[10px] text-slate-600">
-                                Confidence {Math.round(signal.confidence * 100)}% | Reliability {Math.round(signal.reliability * 100)}% | Escalation +{signal.escalation_contribution}
-                              </p>
-                              {analystMode && (
-                                <div className="mt-1 rounded border border-slate-200 bg-slate-50 p-1">
-                                  <p className="text-[10px] text-slate-700">Context: {signal.reasoning_context ?? 'N/A'}</p>
-                                  <p className="text-[10px] text-slate-700">Module: {signal.source_module ?? 'N/A'}</p>
-                                  {signal.analyst_details && (
-                                    <pre className="mt-1 overflow-x-auto whitespace-pre-wrap text-[10px] text-slate-600">
-                                      {JSON.stringify(signal.analyst_details, null, 2)}
-                                    </pre>
-                                  )}
-                                </div>
-                              )}
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+                </InvestigationPanel>
+              </>
+            )}
           </section>
         )}
       </div>

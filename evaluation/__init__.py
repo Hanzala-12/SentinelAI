@@ -1,2 +1,2 @@
-"""SentinelAI evaluation framework package."""
+"""PhishLens evaluation framework package."""
 

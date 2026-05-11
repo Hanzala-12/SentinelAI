@@ -1,2 +1,2 @@
-"""Utilities for SentinelAI system-level evaluation."""
+"""Utilities for PhishLens system-level evaluation."""
 

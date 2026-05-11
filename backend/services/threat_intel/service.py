@@ -4,6 +4,7 @@ import asyncio
 import ipaddress
 import os
 import socket
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
 
 from backend.api.schemas.scans import DetectedIssue
@@ -16,6 +17,7 @@ from backend.services.threat_intel.providers.virustotal import VirusTotalClient
 
 class ThreatIntelService:
     def __init__(self) -> None:
+        self.offline_eval = os.getenv("PHISHLENS_OFFLINE_EVAL", "0") == "1"
         self.virustotal_key = os.getenv("VIRUSTOTAL_API_KEY")
         self.urlscan_key = os.getenv("URLSCAN_API_KEY")
         self.abuseipdb_key = os.getenv("ABUSEIPDB_API_KEY")
@@ -25,6 +27,15 @@ class ThreatIntelService:
         self.abuseipdb_client = AbuseIpDbClient(self.abuseipdb_key) if self.abuseipdb_key else None
 
     def lookup_url(self, url: str | None) -> ThreatIntelResult:
+        if self.offline_eval:
+            return ThreatIntelResult(
+                score=0,
+                confidence=0.0,
+                issues=[],
+                notes=["Threat intelligence disabled for offline evaluation mode."],
+                provider_findings=[],
+            )
+
         if not url:
             return ThreatIntelResult(
                 score=0,
@@ -45,36 +56,51 @@ class ThreatIntelService:
         parsed = urlparse(url)
         hostname = (parsed.hostname or "").strip().lower()
 
+        tasks: list[tuple[str, str, callable]] = []
+
         if self.virustotal_client:
-            finding, vt_issues, note = self._query_virustotal(url)
-            provider_findings.append(finding)
-            issues.extend(vt_issues)
-            if note:
-                notes.append(note)
+            tasks.append(("virustotal", "VirusTotal", lambda: self._query_virustotal(url)))
         else:
             notes.append("VirusTotal integration is not configured.")
 
         if self.urlscan_client:
-            finding, us_issues, note = self._query_urlscan(url)
-            provider_findings.append(finding)
-            issues.extend(us_issues)
-            if note:
-                notes.append(note)
+            tasks.append(("urlscan", "URLScan", lambda: self._query_urlscan(url)))
         else:
             notes.append("URLScan integration is not configured.")
 
         if self.abuseipdb_client:
             ip_address = self._resolve_ip(hostname)
             if ip_address:
-                finding, ab_issues, note = self._query_abuseipdb(ip_address)
-                provider_findings.append(finding)
-                issues.extend(ab_issues)
-                if note:
-                    notes.append(note)
+                tasks.append(("abuseipdb", "AbuseIPDB", lambda ip=ip_address: self._query_abuseipdb(ip)))
             else:
                 notes.append("AbuseIPDB lookup skipped because hostname could not be resolved to a public IP.")
         else:
             notes.append("AbuseIPDB integration is not configured.")
+
+        if tasks:
+            with ThreadPoolExecutor(max_workers=len(tasks)) as executor:
+                future_map = {
+                    executor.submit(task): (provider_key, provider_label)
+                    for provider_key, provider_label, task in tasks
+                }
+                for future in as_completed(future_map):
+                    provider_key, provider_label = future_map[future]
+                    try:
+                        finding, provider_issues, note = future.result()
+                    except Exception as exc:
+                        finding = ProviderFinding(
+                            provider=provider_key,
+                            score=0,
+                            confidence=0.2,
+                            summary=f"{provider_label} lookup failed: {exc}",
+                            verdict="error",
+                        )
+                        provider_issues = []
+                        note = f"{provider_label} lookup failed gracefully; no score contributed."
+                    provider_findings.append(finding)
+                    issues.extend(provider_issues)
+                    if note:
+                        notes.append(note)
 
         score = self._score_from_provider_findings(provider_findings)
         confidence = self._confidence_from_provider_findings(provider_findings)

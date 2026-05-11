@@ -1,8 +1,8 @@
-# 🚀 SENTINELAI ML UPGRADE - START HERE
+# 🚀 PHISHLENS ML UPGRADE - START HERE
 
 ## Welcome! 👋
 
-You have received a **complete, production-ready solution** to fix the zero-recall phishing detection problem in SentinelAI.
+You have received a **complete, production-ready solution** to fix the zero-recall phishing detection problem in PhishLens.
 
 ### Status: ✅ Ready to Integrate
 
@@ -88,7 +88,7 @@ data = loader.load_with_sampling(sample_size=100)  # Configurable
 
 ### Example Notebook
 
-**File**: [`evaluation/notebooks/sentinelai_ml_pipeline_example.ipynb`](evaluation/notebooks/sentinelai_ml_pipeline_example.ipynb)
+**File**: [`evaluation/notebooks/phishlens_ml_pipeline_example.ipynb`](evaluation/notebooks/phishlens_ml_pipeline_example.ipynb)
 
 This is a **complete, working example** showing:
 - How to load data with sampling
@@ -144,7 +144,7 @@ Expected Results:
 
 ### ⏱️ Phase 2: Integration (30 min)
 3. Follow [NOTEBOOK_INTEGRATION_GUIDE.md](NOTEBOOK_INTEGRATION_GUIDE.md)
-4. Add code cells to `sentinelai_evaluation.ipynb`
+4. Add code cells to `phishlens_evaluation.ipynb`
 
 ### ⏱️ Phase 3: Testing (10 min)
 5. Run notebook with `SAMPLE_SIZE=100`
@@ -169,8 +169,8 @@ e:\is project\
 │   │   ├── sampled_dataset_loader.py    ← NEW: Dataset sampling
 │   │   └── unified_loader.py            ✓ Already works
 │   └── notebooks/
-│       ├── sentinelai_evaluation.ipynb          → EDIT THIS (follow guide)
-│       └── sentinelai_ml_pipeline_example.ipynb ← NEW: Reference example
+│       ├── phishlens_evaluation.ipynb          → EDIT THIS (follow guide)
+│       └── phishlens_ml_pipeline_example.ipynb ← NEW: Reference example
 │
 ├── DELIVERY_CHECKLIST.md                ← NEW: Start here
 ├── SOLUTION_SUMMARY.md                  ← NEW: Read second
@@ -192,7 +192,7 @@ e:\is project\
 - `SOLUTION_SUMMARY.md` - Technical summary
 - `ML_UPGRADE_GUIDE.md` - Detailed guide
 - `NOTEBOOK_INTEGRATION_GUIDE.md` - Integration steps
-- `sentinelai_ml_pipeline_example.ipynb` - Working example
+- `phishlens_ml_pipeline_example.ipynb` - Working example
 
 ### UNCHANGED (Still Works)
 - `unified_loader.py` - Dataset loading
@@ -278,7 +278,7 @@ Everything is prepared for you. No execution, no training, no heavy lifting - ju
 - **[ML_UPGRADE_GUIDE.md](ML_UPGRADE_GUIDE.md)** - Deep dive (15 min)
 - **[NOTEBOOK_INTEGRATION_GUIDE.md](NOTEBOOK_INTEGRATION_GUIDE.md)** - Integration steps (30 min)
 - **Code**: [ml_feature_extractor.py](evaluation/utils/ml_feature_extractor.py), [ml_model.py](evaluation/utils/ml_model.py), [sampled_dataset_loader.py](evaluation/utils/sampled_dataset_loader.py)
-- **Example**: [sentinelai_ml_pipeline_example.ipynb](evaluation/notebooks/sentinelai_ml_pipeline_example.ipynb)
+- **Example**: [phishlens_ml_pipeline_example.ipynb](evaluation/notebooks/phishlens_ml_pipeline_example.ipynb)
 
 ---
 

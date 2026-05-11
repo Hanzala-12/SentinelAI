@@ -34,6 +34,38 @@ class ScanHistoryRepository:
             or 0
         )
 
+    def delete_by_id(self, user_id: int, scan_id: int) -> bool:
+        record = (
+            self.db.query(ScanHistory)
+            .filter(ScanHistory.user_id == user_id, ScanHistory.id == scan_id)
+            .first()
+        )
+        if not record:
+            return False
+        self.db.delete(record)
+        self.db.commit()
+        return True
+
+    def delete_many_by_ids(self, user_id: int, ids: list[int]) -> int:
+        if not ids:
+            return 0
+        deleted = (
+            self.db.query(ScanHistory)
+            .filter(ScanHistory.user_id == user_id, ScanHistory.id.in_(ids))
+            .delete(synchronize_session=False)
+        )
+        self.db.commit()
+        return int(deleted or 0)
+
+    def delete_all_for_user(self, user_id: int) -> int:
+        deleted = (
+            self.db.query(ScanHistory)
+            .filter(ScanHistory.user_id == user_id)
+            .delete(synchronize_session=False)
+        )
+        self.db.commit()
+        return int(deleted or 0)
+
     def stats_for_user(self, user_id: int) -> dict[str, object]:
         rows = (
             self.db.query(

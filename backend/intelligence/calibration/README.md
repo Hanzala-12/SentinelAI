@@ -1,4 +1,4 @@
-# SentinelAI Calibration Workflow
+# PhishLens Calibration Workflow
 
 This directory contains corpus-driven calibration assets used to harden phishing detection quality.
 

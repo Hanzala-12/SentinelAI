@@ -67,7 +67,7 @@ def evaluate_dataset(
     show_progress: bool = True,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     """
-    Execute a full SentinelAI system-level evaluation over URL data.
+    Execute a full PhishLens system-level evaluation over URL data.
     """
     service = AnalysisService()
     if disable_interaction:

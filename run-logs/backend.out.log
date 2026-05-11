@@ -1,0 +1,4 @@
+2026-05-11 19:57:46,058 | INFO | backend.main | Starting SentinelAI in development mode
+2026-05-11 19:57:47,585 | WARNING | backend.ai_engine.text_analyzer | Local NLP model loading failed: No module named 'torch'
+INFO:     127.0.0.1:59824 - "GET /api/v1/health HTTP/1.1" 200 OK
+inelAI

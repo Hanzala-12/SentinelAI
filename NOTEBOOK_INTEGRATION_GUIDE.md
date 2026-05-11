@@ -1,6 +1,6 @@
 # 🔧 NOTEBOOK INTEGRATION: Ready-to-Paste Code Cells
 
-This document provides exact code cells to integrate into the existing `sentinelai_evaluation.ipynb` notebook to fix the zero-recall problem.
+This document provides exact code cells to integrate into the existing `phishlens_evaluation.ipynb` notebook to fix the zero-recall problem.
 
 ## 📋 Checklist of Changes
 
@@ -364,7 +364,7 @@ After making all changes:
 
 ## Next: Integration into Existing Notebook
 
-The existing `sentinelai_evaluation.ipynb` currently:
+The existing `phishlens_evaluation.ipynb` currently:
 1. Loads datasets (old method)
 2. Runs backend pipeline (heuristic-based)
 3. Computes metrics (shows zero recall)

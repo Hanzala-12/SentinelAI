@@ -1,4 +1,4 @@
-# ✅ SENTINELAI ML UPGRADE - DELIVERY CHECKLIST
+# ✅ PHISHLENS ML UPGRADE - DELIVERY CHECKLIST
 
 ## 📦 What You're Receiving
 
@@ -48,7 +48,7 @@ This is a **complete, production-ready upgrade** to fix the zero-recall phishing
   - Configuration examples
   - Troubleshooting guide
 
-- [x] **`evaluation/notebooks/sentinelai_ml_pipeline_example.ipynb`**
+- [x] **`evaluation/notebooks/phishlens_ml_pipeline_example.ipynb`**
   - Complete working example notebook
   - All cells properly documented
   - Expected to run without modifications
@@ -95,7 +95,7 @@ Scalable: ✓
 | `ml_feature_extractor.py` | Module | 300L | Feature extraction |
 | `ml_model.py` | Module | 350L | ML models & pipeline |
 | `sampled_dataset_loader.py` | Module | 150L | Configurable sampling |
-| `sentinelai_ml_pipeline_example.ipynb` | Notebook | 40 cells | Working example |
+| `phishlens_ml_pipeline_example.ipynb` | Notebook | 40 cells | Working example |
 | `SOLUTION_SUMMARY.md` | Doc | 15 sections | Executive summary |
 | `ML_UPGRADE_GUIDE.md` | Doc | 10 sections | Technical deep-dive |
 | `NOTEBOOK_INTEGRATION_GUIDE.md` | Doc | 9 code cells | Integration instructions |
@@ -184,7 +184,7 @@ After integration, you should have:
 - [ ] `evaluation/utils/ml_feature_extractor.py`
 - [ ] `evaluation/utils/ml_model.py`
 - [ ] `evaluation/utils/sampled_dataset_loader.py`
-- [ ] `evaluation/notebooks/sentinelai_ml_pipeline_example.ipynb`
+- [ ] `evaluation/notebooks/phishlens_ml_pipeline_example.ipynb`
 
 **Documentation Files (Created)**
 - [ ] `ML_UPGRADE_GUIDE.md`
@@ -198,7 +198,7 @@ After integration, you should have:
 - [ ] `backend/services/analysis_service.py` (unchanged)
 
 **Files to Edit (Following Integration Guide)**
-- [ ] `evaluation/notebooks/sentinelai_evaluation.ipynb` (add new cells)
+- [ ] `evaluation/notebooks/phishlens_evaluation.ipynb` (add new cells)
 
 ---
 
@@ -206,7 +206,7 @@ After integration, you should have:
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│                  SentinelAI ML System                    │
+│                  PhishLens ML System                    │
 ├──────────────────────────────────────────────────────────┤
 │                                                          │
 │  INPUT: Raw URLs (with labels)                          │
@@ -349,7 +349,7 @@ Quick links to all documentation:
 1. **Start here**: [SOLUTION_SUMMARY.md](SOLUTION_SUMMARY.md)
 2. **Understand the problem**: [ML_UPGRADE_GUIDE.md](ML_UPGRADE_GUIDE.md)
 3. **Integrate into notebook**: [NOTEBOOK_INTEGRATION_GUIDE.md](NOTEBOOK_INTEGRATION_GUIDE.md)
-4. **See working example**: [evaluation/notebooks/sentinelai_ml_pipeline_example.ipynb](evaluation/notebooks/sentinelai_ml_pipeline_example.ipynb)
+4. **See working example**: [evaluation/notebooks/phishlens_ml_pipeline_example.ipynb](evaluation/notebooks/phishlens_ml_pipeline_example.ipynb)
 5. **Code implementation**:
    - [Feature Extractor](evaluation/utils/ml_feature_extractor.py)
    - [ML Models](evaluation/utils/ml_model.py)

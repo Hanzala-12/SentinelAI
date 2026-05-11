@@ -1,4 +1,4 @@
-# 🎉 SENTINELAI ML UPGRADE - COMPLETE DELIVERY SUMMARY
+# 🎉 PHISHLENS ML UPGRADE - COMPLETE DELIVERY SUMMARY
 
 ## 📊 What You're Getting
 
@@ -20,7 +20,7 @@
 │  └─ NOTEBOOK_INTEGRATION_GUIDE.md - Step-by-step integration│
 │                                                                │
 │  📓 EXAMPLE (1 complete notebook)                            │
-│  └─ sentinelai_ml_pipeline_example.ipynb (40 cells)         │
+│  └─ phishlens_ml_pipeline_example.ipynb (40 cells)         │
 │                                                                │
 │  📋 INVENTORY (Reference documents)                          │
 │  └─ FINAL_INVENTORY.md - Complete file listing              │
@@ -132,8 +132,8 @@ e:\is project\
 │   │   └── unified_loader.py (still works)
 │   │
 │   ├── notebooks/
-│   │   ├── sentinelai_ml_pipeline_example.ipynb ◄─── NEW (example)
-│   │   └── sentinelai_evaluation.ipynb ◄─── EDIT THIS (follow guide)
+│   │   ├── phishlens_ml_pipeline_example.ipynb ◄─── NEW (example)
+│   │   └── phishlens_evaluation.ipynb ◄─── EDIT THIS (follow guide)
 │   │
 │   ├── reports/
 │   │   └── (output files generated here)
@@ -325,7 +325,7 @@ results = pipeline.threshold_sweep(thresholds)
 | `SOLUTION_SUMMARY.md` | Technical | 10 min |
 | `ML_UPGRADE_GUIDE.md` | Deep dive | 15 min |
 | `NOTEBOOK_INTEGRATION_GUIDE.md` | Integration | 30 min |
-| `sentinelai_ml_pipeline_example.ipynb` | Example | 10 min |
+| `phishlens_ml_pipeline_example.ipynb` | Example | 10 min |
 
 ---
 

@@ -74,8 +74,8 @@ class TextAnalyzer:
         local_only: bool | None = None,
         cpu_threads: int | None = None,
     ) -> None:
-        self.model_name = model_name or os.getenv("SENTINELAI_NLP_MODEL", "distilbert-scam-detector")
-        model_dir_override = model_dir or os.getenv("SENTINELAI_NLP_MODEL_DIR")
+        self.model_name = model_name or os.getenv("PHISHLENS_NLP_MODEL", "distilbert-scam-detector")
+        model_dir_override = model_dir or os.getenv("PHISHLENS_NLP_MODEL_DIR")
         repo_root = Path(__file__).resolve().parents[2]
         default_model_dir = Path(__file__).resolve().parents[1] / "models" / "nlp" / self.model_name
         if model_dir_override:
@@ -83,15 +83,15 @@ class TextAnalyzer:
             self.model_dir = candidate if candidate.is_absolute() else repo_root / candidate
         else:
             self.model_dir = default_model_dir
-        self.max_length = int(os.getenv("SENTINELAI_NLP_MAX_LENGTH", "256"))
+        self.max_length = int(os.getenv("PHISHLENS_NLP_MAX_LENGTH", "256"))
         if cpu_threads is not None:
             self.cpu_threads = max(1, cpu_threads)
         else:
-            self.cpu_threads = max(1, int(os.getenv("SENTINELAI_NLP_THREADS", "2")))
+            self.cpu_threads = max(1, int(os.getenv("PHISHLENS_NLP_THREADS", "2")))
         if local_only is not None:
             self.local_files_only = local_only
         else:
-            self.local_files_only = os.getenv("SENTINELAI_NLP_LOCAL_ONLY", "true").lower() != "false"
+            self.local_files_only = os.getenv("PHISHLENS_NLP_LOCAL_ONLY", "true").lower() != "false"
         self._tokenizer = None
         self._model = None
         self._risk_label_ids: set[int] = set()

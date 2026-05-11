@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import ipaddress
 import math
 import re
@@ -223,6 +224,9 @@ class ThreatSignalExtractor:
         page_html: str | None = None,
         fetch_remote: bool = True,
     ) -> SignalExtractionResult:
+        if os.getenv("PHISHLENS_OFFLINE_EVAL", "0") == "1":
+            fetch_remote = False
+
         normalized_url = self._normalize_url(url)
         parsed = urlparse(normalized_url)
         hostname = parsed.hostname or ""
@@ -1110,12 +1114,14 @@ class ThreatSignalExtractor:
         return signals
 
     def _fetch_page(self, url: str) -> tuple[str, list[str], str | None]:
+        if os.getenv("PHISHLENS_OFFLINE_EVAL", "0") == "1":
+            return "", [], "Offline mode: page fetch disabled"
         try:
             response = requests.get(
                 url,
                 timeout=self.timeout_seconds,
                 allow_redirects=True,
-                headers={"User-Agent": "SentinelAI/2.0 (+threat-reasoning)"},
+                headers={"User-Agent": "PhishLens/2.0 (+threat-reasoning)"},
             )
             response.raise_for_status()
             redirects = [item.url for item in response.history]

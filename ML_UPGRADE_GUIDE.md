@@ -1,4 +1,4 @@
-# 🔴 SENTINELAI ML UPGRADE: Root Cause & Fixes
+# 🔴 PHISHLENS ML UPGRADE: Root Cause & Fixes
 
 ## Executive Summary
 
@@ -381,7 +381,7 @@ features_df = extractor.extract_features_batch(full_data[['url', 'label']])
 4. `NOTEBOOK_WIRING_GUIDE.md` - This guide with step-by-step notebook instructions
 
 ### Files to Modify
-- `evaluation/notebooks/sentinelai_evaluation.ipynb` - Follow the wiring guide above
+- `evaluation/notebooks/phishlens_evaluation.ipynb` - Follow the wiring guide above
 
 ### Files Already Working
 - `evaluation/utils/unified_loader.py` - ✓ Already handles all dataset formats

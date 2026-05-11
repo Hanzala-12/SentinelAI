@@ -21,14 +21,14 @@ class AnalysisService:
     def __init__(self) -> None:
         settings = get_settings()
         self.url_analyzer = UrlAnalyzer(
-            model_path=settings.sentinelai_url_model_path,
-            metadata_path=settings.sentinelai_url_model_metadata_path,
+            model_path=settings.phishlens_url_model_path,
+            metadata_path=settings.phishlens_url_model_metadata_path,
         )
         self.text_analyzer = TextAnalyzer(
-            model_name=settings.sentinelai_nlp_model,
-            model_dir=settings.sentinelai_nlp_model_dir,
-            local_only=settings.sentinelai_nlp_local_only,
-            cpu_threads=settings.sentinelai_nlp_threads,
+            model_name=settings.phishlens_nlp_model,
+            model_dir=settings.phishlens_nlp_model_dir,
+            local_only=settings.phishlens_nlp_local_only,
+            cpu_threads=settings.phishlens_nlp_threads,
         )
         self.threat_intel = ThreatIntelService()
         self.signal_extractor = ThreatSignalExtractor()

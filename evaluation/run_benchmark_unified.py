@@ -184,7 +184,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="SentinelAI Unified Evaluation Pipeline - Loads all datasets from a directory and runs full benchmark."
+        description="PhishLens Unified Evaluation Pipeline - Loads all datasets from a directory and runs full benchmark."
     )
     parser.add_argument(
         "--datasets-dir",

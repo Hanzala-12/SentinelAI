@@ -1,10 +1,10 @@
-# SentinelAI Evaluation Framework
+# PhishLens Evaluation Framework
 
-This module provides a reproducible, system-level phishing benchmark pipeline for SentinelAI.
+This module provides a reproducible, system-level phishing benchmark pipeline for PhishLens.
 
 ## Scope
 
-The evaluation runs URLs through the **real SentinelAI pipeline**:
+The evaluation runs URLs through the **real PhishLens pipeline**:
 
 - signal extraction
 - URL analysis
@@ -77,7 +77,7 @@ Additional exports:
 
 Use:
 
-`evaluation/notebooks/sentinelai_evaluation.ipynb`
+`evaluation/notebooks/phishlens_evaluation.ipynb`
 
 The notebook is structured in 10 sections for academic presentation, including false positive/negative investigation and threshold analysis.
 

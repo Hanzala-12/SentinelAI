@@ -1,10 +1,10 @@
-# 👉 SentinelAI Evaluation Complete
+# 👉 PhishLens Evaluation Complete
 
 ## Executive Summary
 
 **Status**: ✅ **EVALUATION PIPELINE SUCCESSFULLY EXECUTED**
 
-The SentinelAI end-to-end evaluation pipeline has been fully completed with all datasets loaded, standardized, injected into the analysis backend, and comprehensive metrics generated. The system processed **150 URLs** across **3 dataset sources** in approximately **6.5 minutes** with **zero network-dependent timeouts**.
+The PhishLens end-to-end evaluation pipeline has been fully completed with all datasets loaded, standardized, injected into the analysis backend, and comprehensive metrics generated. The system processed **150 URLs** across **3 dataset sources** in approximately **6.5 minutes** with **zero network-dependent timeouts**.
 
 ---
 
@@ -68,7 +68,7 @@ Metrics & Reports (JSON, CSV, PNG visualizations)
 
 ### Offline Evaluation Mode Patches
 
-Implemented **SENTINELAI_OFFLINE_EVAL=1** environment variable to disable all network-dependent operations:
+Implemented **PHISHLENS_OFFLINE_EVAL=1** environment variable to disable all network-dependent operations:
 
 1. **backend/intelligence/signal_extractor.py** (line 227, line 1116):
    - `extract()` method: Sets `fetch_remote=False`
@@ -224,7 +224,7 @@ Tested thresholds: [20, 30, 40, 50, 60]
 
 ### Bug #2: WHOIS Network Timeouts
 **Problem**: WHOIS library made blocking socket calls in signal extraction, caused 5-10 second delays and getaddrinfo failures  
-**Solution**: Added offline guard in phishing_url_model._safe_whois() to return None when SENTINELAI_OFFLINE_EVAL=1  
+**Solution**: Added offline guard in phishing_url_model._safe_whois() to return None when PHISHLENS_OFFLINE_EVAL=1  
 **Impact**: Reduced per-URL runtime from 10-15 sec to 2.6 sec (77% speedup)
 
 ### Bug #3: Threat-Intel API Dependency
@@ -253,7 +253,7 @@ Tested thresholds: [20, 30, 40, 50, 60]
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│        SentinelAI End-to-End Evaluation Pipeline            │
+│        PhishLens End-to-End Evaluation Pipeline            │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
 │  INPUT: 4 Dataset Sources (2,391,755 rows)                │
@@ -334,11 +334,11 @@ Tested thresholds: [20, 30, 40, 50, 60]
 
 ## Conclusion
 
-✅ **The SentinelAI evaluation pipeline has been successfully completed.**
+✅ **The PhishLens evaluation pipeline has been successfully completed.**
 
 All datasets have been loaded, normalized, and injected into the analysis backend. The system processed 150 URLs across 3 sources in 390.7 seconds with full offline support (zero network timeouts). Comprehensive metrics, visualizations, and detailed records have been generated and exported to JSON, CSV, and PNG formats.
 
-The evaluation demonstrates that the SentinelAI backend is capable of processing high volumes of URLs efficiently when configured for offline analysis. The current metrics indicate opportunity for model calibration and threat-intel integration to improve phishing detection accuracy.
+The evaluation demonstrates that the PhishLens backend is capable of processing high volumes of URLs efficiently when configured for offline analysis. The current metrics indicate opportunity for model calibration and threat-intel integration to improve phishing detection accuracy.
 
 ---
 

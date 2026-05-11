@@ -1,4 +1,4 @@
-# 🧠 SENTINELAI ML UPGRADE - COMPLETE SOLUTION SUMMARY
+# 🧠 PHISHLENS ML UPGRADE - COMPLETE SOLUTION SUMMARY
 
 ## Overview
 
@@ -34,7 +34,7 @@ Phase 2: phishing_url_model.extract()
 └─ Generates URL/domain signals
 ```
 
-**In offline mode (SENTINELAI_OFFLINE_EVAL=1)**:
+**In offline mode (PHISHLENS_OFFLINE_EVAL=1)**:
 - `_fetch_page()` returns empty → No DOM signals
 - `_safe_whois()` returns None → No domain registration signals
 - Only weak URL-structure heuristics remain
@@ -324,7 +324,7 @@ pipeline.train()
 |------|---------|
 | `ML_UPGRADE_GUIDE.md` | Root cause analysis + architecture overview |
 | `NOTEBOOK_INTEGRATION_GUIDE.md` | Step-by-step code cells to paste into notebook |
-| `evaluation/notebooks/sentinelai_ml_pipeline_example.ipynb` | Complete working example notebook |
+| `evaluation/notebooks/phishlens_ml_pipeline_example.ipynb` | Complete working example notebook |
 | `evaluation/utils/ml_feature_extractor.py` | Feature extraction implementation |
 | `evaluation/utils/ml_model.py` | ML models and pipeline |
 | `evaluation/utils/sampled_dataset_loader.py` | Dataset sampling logic |

@@ -1,4 +1,4 @@
-# SentinelAI
+# PhishLens
 
 <div align="center">
 
@@ -13,7 +13,7 @@
 
 ## Overview
 
-SentinelAI is an enterprise-grade, intelligent phishing investigation platform focused on **threat reasoning** and evidence-driven analysis, not just model scoring. It combines advanced signal extraction, reputation correlation, explainable risk scoring, and structured threat reporting to provide transparent, actionable security intelligence.
+PhishLens is an enterprise-grade, intelligent phishing investigation platform focused on **threat reasoning** and evidence-driven analysis, not just model scoring. It combines advanced signal extraction, reputation correlation, explainable risk scoring, and structured threat reporting to provide transparent, actionable security intelligence.
 
 ### Key Philosophy
 
@@ -166,7 +166,7 @@ The API is self-documenting via Swagger UI:
 
 ```env
 # Database
-DATABASE_URL=postgresql://user:password@localhost/sentinelai
+DATABASE_URL=postgresql://user:password@localhost/phishlens
 
 # Threat Intelligence APIs
 VIRUSTOTAL_API_KEY=your_key
@@ -283,7 +283,7 @@ For issues, questions, or suggestions:
 - `URLSCAN_API_KEY`
 - `ABUSEIPDB_API_KEY`
 - `OPENROUTER_API_KEY`
-- `SENTINELAI_NLP_MODEL`
+- `PHISHLENS_NLP_MODEL`
 - `REASON_WEIGHT_PHISHING_PROBABILITY`
 - `REASON_WEIGHT_DOM_SUSPICION`
 - `REASON_WEIGHT_CONTENT_SCAM_SCORE`
@@ -310,4 +310,4 @@ npm run dev
 
 Detailed audit and implemented refactor notes:
 
-- `docs/sentinelai_refactor_audit.md`
+- `docs/phishlens_refactor_audit.md`

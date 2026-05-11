@@ -1,11 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "SentinelAI Browser Security Copilot",
+  "name": "PhishLens Browser Security Copilot",
   "version": "0.1.0",
-  "description": "Real-time browser security warnings powered by SentinelAI.",
+  "description": "Real-time browser security warnings powered by PhishLens.",
   "action": {
     "default_popup": "popup.html",
-    "default_title": "SentinelAI"
+    "default_title": "PhishLens"
   },
   "background": {
     "service_worker": "background.js",

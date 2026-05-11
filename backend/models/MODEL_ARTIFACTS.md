@@ -1,4 +1,4 @@
-# SentinelAI Local Model Artifacts
+# PhishLens Local Model Artifacts
 
 This directory now contains deterministic, offline-loadable model artifacts used by analysis services.
 

@@ -23,3 +23,13 @@ class DashboardStatsResponse(BaseModel):
     recent_scans: list[ScanHistoryItem]
     total_scans: int
     feature_flags: dict[str, bool]
+
+
+class HistoryDeleteRequest(BaseModel):
+    ids: list[int] = []
+    delete_all: bool = False
+
+
+class HistoryDeleteResponse(BaseModel):
+    deleted_count: int
+    remaining: int

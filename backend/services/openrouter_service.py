@@ -33,20 +33,54 @@ class OpenRouterService:
             "HTTP-Referer": self.http_referer,
             "X-Title": self.app_name,
         }
+        messages = [
+            {"role": "system", "content": "You are a concise cybersecurity copilot."},
+            {"role": "user", "content": prompt},
+        ]
+        models_to_try = [self.model_name]
+        if self.model_name != "openrouter/auto":
+            models_to_try.append("openrouter/auto")
+
+        last_error: str | None = None
+        for model_name in models_to_try:
+            try:
+                return self._request_completion(headers=headers, model_name=model_name, messages=messages)
+            except RuntimeError as exc:
+                last_error = str(exc)
+                if "No endpoints found for" in last_error:
+                    continue
+                raise
+
+        raise RuntimeError(last_error or "OpenRouter completion failed")
+
+    def _request_completion(
+        self,
+        *,
+        headers: dict[str, str],
+        model_name: str,
+        messages: list[dict[str, str]],
+    ) -> str:
         payload = {
-            "model": self.model_name,
-            "messages": [
-                {"role": "system", "content": "You are a concise cybersecurity copilot."},
-                {"role": "user", "content": prompt},
-            ],
+            "model": model_name,
+            "messages": messages,
             "temperature": 0.2,
             "max_tokens": 160,
         }
-        with httpx.Client(timeout=30.0) as client:
-            response = client.post(f"{self.base_url}/chat/completions", headers=headers, json=payload)
-            response.raise_for_status()
-            data = response.json()
         try:
-            return data["choices"][0]["message"]["content"].strip()
+            with httpx.Client(timeout=30.0) as client:
+                response = client.post(f"{self.base_url}/chat/completions", headers=headers, json=payload)
+                response.raise_for_status()
+                data = response.json()
+        except httpx.HTTPStatusError as exc:
+            message = exc.response.text
+            raise RuntimeError(f"OpenRouter request failed: HTTP {exc.response.status_code} - {message}") from exc
+        except httpx.HTTPError as exc:
+            raise RuntimeError(f"OpenRouter request failed: {exc}") from exc
+
+        try:
+            content = data["choices"][0]["message"]["content"].strip()
         except Exception as exc:
             raise RuntimeError("OpenRouter response was malformed") from exc
+        if not content:
+            raise RuntimeError("OpenRouter returned an empty completion")
+        return content

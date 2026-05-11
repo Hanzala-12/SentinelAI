@@ -1,25 +1,25 @@
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --bg: #f4f6f8;
-  --bg-soft: #e6ebf0;
+  --bg: #f5f7fa;
+  --bg-soft: #eef2f6;
   --surface: #ffffff;
-  --surface-2: #f9fbfd;
-  --text: #17212b;
-  --text-muted: #556270;
-  --border: #d7dfe7;
-  --brand: #0f5f8f;
-  --brand-soft: #e1eef7;
-  --danger: #a12626;
-  --danger-soft: #fde8e8;
-  --warn: #8a4d00;
-  --warn-soft: #fff3de;
-  --success: #1c6b45;
-  --success-soft: #dff5e8;
+  --surface-2: #fbfcfe;
+  --text: #111827;
+  --text-muted: #5f6b7a;
+  --border: #d8e1eb;
+  --brand: #134fa3;
+  --brand-soft: #e8effa;
+  --danger: #b4232f;
+  --danger-soft: #fdebed;
+  --warn: #9a5c00;
+  --warn-soft: #fff3e0;
+  --success: #216e41;
+  --success-soft: #e5f7ed;
 }
 
 html,
@@ -31,11 +31,11 @@ body,
 body {
   margin: 0;
   color: var(--text);
-  font-family: 'IBM Plex Sans', 'Segoe UI', Tahoma, sans-serif;
+  font-family: 'Plus Jakarta Sans', 'Segoe UI', Tahoma, sans-serif;
   background:
-    radial-gradient(circle at top right, rgba(15, 95, 143, 0.08), transparent 26%),
-    radial-gradient(circle at top left, rgba(28, 107, 69, 0.06), transparent 20%),
-    linear-gradient(180deg, var(--bg) 0%, #edf1f5 100%);
+    radial-gradient(circle at top right, rgba(19, 79, 163, 0.06), transparent 30%),
+    radial-gradient(circle at top left, rgba(33, 110, 65, 0.04), transparent 24%),
+    linear-gradient(180deg, var(--bg) 0%, #eff3f8 100%);
 }
 
 * {
@@ -50,4 +50,29 @@ code,
 .soft-panel {
   border: 1px solid var(--border);
   background: linear-gradient(180deg, var(--surface) 0%, var(--surface-2) 100%);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+}
+
+.tone-safe {
+  background: var(--success-soft);
+  color: var(--success);
+  border-color: rgba(33, 110, 65, 0.35);
+}
+
+.tone-suspicious {
+  background: var(--warn-soft);
+  color: var(--warn);
+  border-color: rgba(154, 92, 0, 0.35);
+}
+
+.tone-danger {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-color: rgba(180, 35, 47, 0.3);
+}
+
+.tone-neutral {
+  background: #edf2f7;
+  color: #334155;
+  border-color: #cbd5e1;
 }

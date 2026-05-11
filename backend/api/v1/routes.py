@@ -6,7 +6,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from backend.api.deps import get_current_user
-from backend.api.schemas.dashboard import DashboardStatsResponse, ScanHistoryItem
+from backend.api.schemas.dashboard import (
+    DashboardStatsResponse,
+    HistoryDeleteRequest,
+    HistoryDeleteResponse,
+    ScanHistoryItem,
+)
 from backend.api.schemas.llm import DeepExplainRequest, DeepExplainResponse
 from backend.api.schemas.scans import ScanResponse, TextScanRequest, UrlScanRequest
 from backend.database.dependencies import get_db
@@ -23,7 +28,7 @@ openrouter_service = OpenRouterService()
 
 @router.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "service": "SentinelAI API", "version": "1.0.0"}
+    return {"status": "ok", "service": "PhishLens API", "version": "1.0.0"}
 
 
 @router.post("/scan/url", response_model=ScanResponse)
@@ -90,11 +95,15 @@ def explain_deep(
 ) -> DeepExplainResponse:
     if not openrouter_service.is_enabled:
         raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="OpenRouter is not configured")
-    explanation = openrouter_service.explain(
-        url=str(payload.url),
-        page_text=payload.page_text or "",
-        risk_score=payload.risk_score,
-    )
+    try:
+        explanation = openrouter_service.explain(
+            url=str(payload.url),
+            page_text=payload.page_text or "",
+            risk_score=payload.risk_score,
+        )
+    except RuntimeError as exc:
+        logger.exception("Deep explanation failed")
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
     ScanHistoryRepository(db).create(
         user_id=current_user.id,
         url=str(payload.url),
@@ -138,6 +147,40 @@ def history(
         "limit": limit,
         "offset": offset,
     }
+
+
+@router.delete("/history/{scan_id}")
+def delete_history_item(
+    scan_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, object]:
+    repo = ScanHistoryRepository(db)
+    deleted = repo.delete_by_id(current_user.id, scan_id)
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="History item not found")
+    return {"deleted": True, "id": scan_id}
+
+
+@router.post("/history/delete", response_model=HistoryDeleteResponse)
+def delete_history_bulk(
+    payload: HistoryDeleteRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> HistoryDeleteResponse:
+    repo = ScanHistoryRepository(db)
+    if payload.delete_all:
+        deleted_count = repo.delete_all_for_user(current_user.id)
+    else:
+        cleaned_ids = sorted({scan_id for scan_id in payload.ids if scan_id > 0})
+        if not cleaned_ids:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Provide one or more history IDs, or set delete_all=true.",
+            )
+        deleted_count = repo.delete_many_by_ids(current_user.id, cleaned_ids)
+    remaining = repo.count_for_user(current_user.id)
+    return HistoryDeleteResponse(deleted_count=deleted_count, remaining=remaining)
 
 
 @router.get("/dashboard/stats", response_model=DashboardStatsResponse)

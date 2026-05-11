@@ -9,23 +9,23 @@ services:
       APP_ENV: development
       APP_HOST: 0.0.0.0
       APP_PORT: 8000
-      DATABASE_URL: postgresql+psycopg2://sentinelai:sentinelai@postgres:5432/sentinelai
+      DATABASE_URL: postgresql+psycopg2://phishlens:phishlens@postgres:5432/phishlens
       REDIS_URL: redis://redis:6379/0
-      SENTINELAI_URL_MODEL_URL: https://github.com/faizann24/Phishing-URL-Detection/raw/master/classifier/phishing.pkl
-      SENTINELAI_MODEL_CACHE_DIR: /var/cache/sentinelai
+      PHISHLENS_URL_MODEL_URL: https://github.com/faizann24/Phishing-URL-Detection/raw/master/classifier/phishing.pkl
+      PHISHLENS_MODEL_CACHE_DIR: /var/cache/phishlens
       HF_HOME: /var/cache/hf
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_MODEL: ${OPENROUTER_MODEL:-mistralai/mistral-7b-instruct:free}
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
       OPENROUTER_HTTP_REFERER: ${OPENROUTER_HTTP_REFERER:-http://localhost:5173}
-      OPENROUTER_APP_NAME: ${OPENROUTER_APP_NAME:-SentinelAI}
+      OPENROUTER_APP_NAME: ${OPENROUTER_APP_NAME:-PhishLens}
     ports:
       - "8000:8000"
     depends_on:
       - postgres
       - redis
     volumes:
-      - sentinelai_model_cache:/var/cache/sentinelai
+      - phishlens_model_cache:/var/cache/phishlens
       - huggingface_cache:/var/cache/hf
 
   frontend:
@@ -42,9 +42,9 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: sentinelai
-      POSTGRES_USER: sentinelai
-      POSTGRES_PASSWORD: sentinelai
+      POSTGRES_DB: phishlens
+      POSTGRES_USER: phishlens
+      POSTGRES_PASSWORD: phishlens
     ports:
       - "5432:5432"
     volumes:
@@ -60,5 +60,5 @@ services:
 volumes:
   postgres_data:
   redis_data:
-  sentinelai_model_cache:
+  phishlens_model_cache:
   huggingface_cache:

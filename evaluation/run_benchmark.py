@@ -64,7 +64,7 @@ def _serialize_record_preview(frame: pd.DataFrame, limit: int = 25) -> list[dict
 
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
-    os.environ.setdefault("SENTINELAI_OFFLINE_EVAL", "1")
+    os.environ.setdefault("PHISHLENS_OFFLINE_EVAL", "1")
 
     merged, summaries = load_all_datasets(Path(args.datasets_dir))
     if merged.empty:
@@ -163,7 +163,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run SentinelAI system-level phishing benchmark evaluation.")
+    parser = argparse.ArgumentParser(description="Run PhishLens system-level phishing benchmark evaluation.")
     parser.add_argument("--datasets-dir", type=str, default="evaluation/datasets")
     parser.add_argument("--results-dir", type=str, default="evaluation/results")
     parser.add_argument("--reports-dir", type=str, default="evaluation/reports")

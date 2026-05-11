@@ -4,6 +4,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
@@ -78,20 +79,34 @@ class InteractionSimulationEngine:
         self.timeout_ms = timeout_ms
         self.max_actions = max_actions
         self.headless = headless
+        self._runtime_disabled_note: str | None = None
+        self._runtime_checked = False
 
     def simulate(self, url: str) -> InteractionSimulationResult:
         if not self.enabled:
             return InteractionSimulationResult(
                 runtime_note="interaction-simulation-disabled-by-configuration",
             )
-        try:
-            from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
-            from playwright.sync_api import sync_playwright
-        except Exception as exc:
+        if self._runtime_disabled_note:
             return InteractionSimulationResult(
-                runtime_note=f"playwright-unavailable: {exc}",
+                runtime_note=self._runtime_disabled_note,
                 signals=[],
             )
+        try:
+            from playwright.sync_api import sync_playwright
+        except Exception as exc:
+            self._runtime_disabled_note = f"playwright-unavailable: {exc}"
+            return InteractionSimulationResult(
+                runtime_note=self._runtime_disabled_note,
+                signals=[],
+            )
+
+        if not self._runtime_checked:
+            runtime_probe_error = self._probe_playwright_runtime(sync_playwright)
+            self._runtime_checked = True
+            if runtime_probe_error:
+                self._runtime_disabled_note = runtime_probe_error
+                return InteractionSimulationResult(runtime_note=runtime_probe_error, signals=[])
 
         events: list[InteractionReplayEvent] = []
         signals: list[SignalEvidence] = []
@@ -145,6 +160,8 @@ class InteractionSimulationEngine:
                 return {}
 
         try:
+            from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=self.headless)
                 context = browser.new_context(ignore_https_errors=True)
@@ -493,6 +510,10 @@ class InteractionSimulationEngine:
                 context.close()
                 browser.close()
         except Exception as exc:
+            if "Executable doesn't exist" in str(exc):
+                self._runtime_disabled_note = (
+                    "playwright-browser-missing: run `playwright install chromium` to enable interaction simulation."
+                )
             logger.warning("Interaction simulation failed: %s", exc)
             return InteractionSimulationResult(
                 runtime_note=f"interaction-runtime-failed: {exc}",
@@ -501,6 +522,21 @@ class InteractionSimulationEngine:
 
         signals = self._dedupe_signals(signals)
         return InteractionSimulationResult(events=events, signals=signals, metadata=metadata)
+
+    def _probe_playwright_runtime(self, sync_playwright) -> str | None:
+        try:
+            with sync_playwright() as p:
+                executable = p.chromium.executable_path
+        except Exception as exc:
+            return f"playwright-runtime-probe-failed: {exc}"
+
+        if not executable:
+            return "playwright-runtime-probe-failed: chromium executable path unavailable."
+        if not Path(executable).exists():
+            return (
+                "playwright-browser-missing: run `playwright install chromium` to enable interaction simulation."
+            )
+        return None
 
     def _mutation_diff(self, before: dict[str, int], after: dict[str, int]) -> dict[str, int]:
         def delta(key: str) -> int:
