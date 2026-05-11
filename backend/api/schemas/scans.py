@@ -37,6 +37,11 @@ class EvidenceItem(BaseModel):
     category: str
     score_impact: int
     confidence: float
+    reliability: float = 0.7
+    reasoning_context: str | None = None
+    escalation_contribution: int = 0
+    source_module: str | None = None
+    analyst_details: dict[str, Any] = Field(default_factory=dict)
     value: Any | None = None
 
 

@@ -143,6 +143,72 @@ URGENCY_BANNER_PATTERN = re.compile(
     r"\b(urgent|act now|final warning|expires (today|soon)|limited time)\b",
     re.IGNORECASE,
 )
+TRUSTED_OAUTH_HINTS = (
+    "accounts.google.com",
+    "login.microsoftonline.com",
+    "appleid.apple.com",
+    "github.com/login/oauth",
+    "auth0.com",
+    "okta.com",
+)
+BENIGN_NOTIFICATION_HINTS = (
+    "allow notifications for updates",
+    "enable notifications",
+    "get updates in browser",
+)
+BENIGN_MFA_HINTS = (
+    "enter the 6-digit code",
+    "one-time code",
+    "authenticator app",
+    "two-factor authentication",
+)
+TRUSTED_SUFFIXES = {
+    "gov",
+    "gov.pk",
+    "gov.uk",
+    "edu",
+    "edu.pk",
+    "ac.uk",
+    "mil",
+    "mil.pk",
+}
+TRUSTED_TRANSPORT_KEYWORDS = (
+    "metro",
+    "railway",
+    "transit",
+    "transport",
+    "airline",
+    "airport",
+    "bus",
+    "ticketing",
+)
+TRUSTED_ENTERPRISE_DOMAINS = {
+    "microsoft.com",
+    "microsoftonline.com",
+    "google.com",
+    "apple.com",
+    "github.com",
+    "okta.com",
+    "auth0.com",
+    "salesforce.com",
+    "amazonaws.com",
+    "atlassian.net",
+    "zoom.us",
+    "slack.com",
+}
+LEGIT_BRAND_DOMAIN_TOKENS = {
+    "microsoftonline",
+    "bankofamerica",
+    "wellsfargo",
+}
+WEAK_CONTEXT_TERMS = (
+    "mailto",
+    "contact",
+    "support email",
+    "footer",
+    "newsletter",
+    "subscribe",
+)
 
 
 class ThreatSignalExtractor:
@@ -176,6 +242,12 @@ class ThreatSignalExtractor:
             text_for_analysis = soup.get_text(separator=" ", strip=True)[: self.max_text_chars]
 
         url_signals, url_metadata = self._extract_url_signals(normalized_url, parsed)
+        trust_profile = self._build_domain_trust_profile(
+            normalized_url=normalized_url,
+            hostname=hostname,
+            url_metadata=url_metadata,
+        )
+        url_metadata["domain_trust"] = trust_profile
         dom_signals = self._extract_dom_signals(
             normalized_url=normalized_url,
             hostname=hostname,
@@ -183,6 +255,18 @@ class ThreatSignalExtractor:
             raw_html=html,
         )
         content_signals = self._extract_content_signals(text_for_analysis)
+        suppression_records = self._apply_contextual_suppression(
+            normalized_url=normalized_url,
+            hostname=hostname,
+            soup=soup,
+            page_text=text_for_analysis,
+            url_signals=url_signals,
+            dom_signals=dom_signals,
+            content_signals=content_signals,
+            trust_profile=trust_profile,
+        )
+        if suppression_records:
+            url_metadata["suppressed_detections"] = suppression_records
 
         return SignalExtractionResult(
             normalized_url=normalized_url,
@@ -481,6 +565,12 @@ class ThreatSignalExtractor:
                         category="credential-harvest",
                         score_impact=22,
                         confidence=0.9,
+                        reasoning_context="Credential collection form action is empty/script-driven.",
+                        analyst_details={
+                            "form_action": action or "(empty)",
+                            "css_style": (form.get("style") or "")[:400],
+                            "form_snippet": str(form)[:420],
+                        },
                     )
                 )
             elif self._is_external_destination(action, hostname):
@@ -494,6 +584,14 @@ class ThreatSignalExtractor:
                         category="credential-harvest",
                         score_impact=30,
                         confidence=0.96,
+                        reasoning_context=(
+                            "Credential form submits to unrelated origin, high-confidence harvest behavior."
+                        ),
+                        analyst_details={
+                            "form_action": action,
+                            "source_hostname": hostname,
+                            "form_snippet": str(form)[:420],
+                        },
                     )
                 )
             elif parsed.scheme == "https" and action.lower().startswith("http://"):
@@ -507,6 +605,12 @@ class ThreatSignalExtractor:
                         category="credential-harvest",
                         score_impact=24,
                         confidence=0.92,
+                        reasoning_context="Sensitive credential flow downgraded from HTTPS page to HTTP endpoint.",
+                        analyst_details={
+                            "form_action": action,
+                            "source_scheme": parsed.scheme,
+                            "form_snippet": str(form)[:420],
+                        },
                     )
                 )
 
@@ -658,36 +762,44 @@ class ThreatSignalExtractor:
         lower_html = raw_html.lower()
         if OBFUSCATION_PATTERN.search(lower_html):
             signals.append(
-                self._signal(
-                    code="dom-obfuscated-javascript",
+                    self._signal(
+                        code="dom-obfuscated-javascript",
                     title="Obfuscated JavaScript indicators",
                     description="Script content includes common obfuscation patterns (eval/atob/fromCharCode escapes).",
                     severity="high",
                     source="dom",
-                    category="evasion",
-                    score_impact=18,
-                    confidence=0.83,
+                        category="evasion",
+                        score_impact=18,
+                        confidence=0.83,
+                        analyst_details={
+                            "js_excerpt": raw_html[:480],
+                            "pattern": "eval/atob/fromCharCode or escape sequences",
+                        },
+                    )
                 )
-            )
 
         if REDIRECT_SCRIPT_PATTERN.search(lower_html):
             signals.append(
-                self._signal(
-                    code="dom-scripted-redirect-logic",
+                    self._signal(
+                        code="dom-scripted-redirect-logic",
                     title="Scripted redirect behavior",
                     description="Client-side redirect behavior was detected in script or markup.",
                     severity="medium",
                     source="dom",
-                    category="delivery",
-                    score_impact=11,
-                    confidence=0.73,
+                        category="delivery",
+                        score_impact=11,
+                        confidence=0.73,
+                        analyst_details={
+                            "pattern": "window.location / location.href / meta refresh",
+                            "js_excerpt": raw_html[:480],
+                        },
+                    )
                 )
-            )
 
         if SUSPICIOUS_EVENT_LISTENER_PATTERN.search(lower_html):
             signals.append(
-                self._signal(
-                    code="dom-suspicious-event-listeners",
+                    self._signal(
+                        code="dom-suspicious-event-listeners",
                     title="Suspicious event listener hooks",
                     description=(
                         "Detected event listeners tied to submit/contextmenu/copy lifecycle, often used "
@@ -695,11 +807,15 @@ class ThreatSignalExtractor:
                     ),
                     severity="medium",
                     source="dom",
-                    category="behavioral-manipulation",
-                    score_impact=14,
-                    confidence=0.78,
+                        category="behavioral-manipulation",
+                        score_impact=14,
+                        confidence=0.78,
+                        analyst_details={
+                            "pattern": "addEventListener(submit/beforeunload/keydown/copy/contextmenu)",
+                            "js_excerpt": raw_html[:480],
+                        },
+                    )
                 )
-            )
 
         if CLIPBOARD_PATTERN.search(lower_html):
             signals.append(
@@ -1045,6 +1161,8 @@ class ThreatSignalExtractor:
     def _detect_typosquatting(self, domain_token: str) -> str | None:
         if not domain_token:
             return None
+        if domain_token in LEGIT_BRAND_DOMAIN_TOKENS:
+            return None
         for brand in BRAND_KEYWORDS:
             if domain_token == brand:
                 return None
@@ -1125,6 +1243,234 @@ class ThreatSignalExtractor:
                     normalized.append(token)
         return normalized
 
+    def _apply_contextual_suppression(
+        self,
+        *,
+        normalized_url: str,
+        hostname: str,
+        soup: BeautifulSoup | None,
+        page_text: str,
+        url_signals: list[SignalEvidence],
+        dom_signals: list[SignalEvidence],
+        content_signals: list[SignalEvidence],
+        trust_profile: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        records: list[dict[str, Any]] = []
+        lowered_text = page_text.lower()
+        lower_html = str(soup).lower() if soup else ""
+
+        oauth_context = any(token in normalized_url.lower() for token in TRUSTED_OAUTH_HINTS) or any(
+            token in lowered_text for token in ("single sign-on", "sso", "oauth consent", "sign in with")
+        )
+        mfa_context = any(token in lowered_text for token in BENIGN_MFA_HINTS)
+        benign_notification_context = any(token in lowered_text for token in BENIGN_NOTIFICATION_HINTS)
+        analytics_context = any(
+            token in lower_html
+            for token in ("googletagmanager", "google-analytics", "segment.com", "hotjar", "mixpanel")
+        )
+
+        for signal in dom_signals:
+            if oauth_context and signal.code in {
+                "dom-scripted-redirect-logic",
+                "dom-meta-refresh-redirect",
+                "dom-suspicious-event-listeners",
+            }:
+                records.append(
+                    self._downgrade_signal(
+                        signal=signal,
+                        reason=(
+                            "Downgraded due to trusted OAuth/SSO context and absence of direct "
+                            "credential-harvest evidence."
+                        ),
+                        score_penalty=5,
+                        confidence_penalty=0.12,
+                    )
+                )
+            if mfa_context and signal.code in {"dom-account-suspension-language", "dom-urgency-banner-language"}:
+                records.append(
+                    self._downgrade_signal(
+                        signal=signal,
+                        reason=(
+                            "Downgraded because page language aligns with common MFA verification wording."
+                        ),
+                        score_penalty=6,
+                        confidence_penalty=0.16,
+                    )
+                )
+            if benign_notification_context and signal.code == "dom-notification-abuse":
+                records.append(
+                    self._downgrade_signal(
+                        signal=signal,
+                        reason=(
+                            "Notification request present but context matches benign update prompt language."
+                        ),
+                        score_penalty=7,
+                        confidence_penalty=0.18,
+                    )
+                )
+            if analytics_context and signal.code == "dom-suspicious-event-listeners":
+                records.append(
+                    self._downgrade_signal(
+                        signal=signal,
+                        reason=(
+                            "Event-listener pattern overlaps with common analytics instrumentation."
+                        ),
+                        score_penalty=4,
+                        confidence_penalty=0.1,
+                    )
+                )
+
+        has_high_signal = any(signal.severity in {"high", "critical"} for signal in dom_signals + content_signals)
+        if not has_high_signal:
+            for signal in content_signals:
+                if signal.code in {
+                    "content-urgency-pressure",
+                    "content-emotional-amplification",
+                    "content-impersonation-language",
+                }:
+                    records.append(
+                        self._downgrade_signal(
+                            signal=signal,
+                            reason=(
+                                "Downgraded low-context social-engineering cue without corroborating "
+                                "technical phishing indicators."
+                            ),
+                            score_penalty=3,
+                            confidence_penalty=0.1,
+                        )
+                    )
+
+        trusted_context = bool(trust_profile.get("is_trusted"))
+        if trusted_context:
+            for signal in url_signals + dom_signals + content_signals:
+                if self._is_weak_context_signal(signal):
+                    records.append(
+                        self._downgrade_signal(
+                            signal=signal,
+                            reason=(
+                                "Weak contextual signal suppressed in trusted-domain context. "
+                                "No direct phishing behavior corroboration detected."
+                            ),
+                            score_penalty=6,
+                            confidence_penalty=0.14,
+                        )
+                    )
+
+        return records
+
+    def _build_domain_trust_profile(
+        self,
+        *,
+        normalized_url: str,
+        hostname: str,
+        url_metadata: dict[str, Any],
+    ) -> dict[str, Any]:
+        host = hostname.lower()
+        base_domain = str(url_metadata.get("base_domain") or "").lower()
+        suffix = str(url_metadata.get("tld") or "").lower()
+        full_suffix = ""
+        domain_parts = [part for part in base_domain.split(".") if part]
+        if len(domain_parts) >= 2:
+            full_suffix = ".".join(domain_parts[1:])
+
+        trust_score = 0
+        reasons: list[str] = []
+        category = "untrusted"
+
+        suffix_candidates = {suffix, full_suffix}
+        if any(candidate in TRUSTED_SUFFIXES for candidate in suffix_candidates if candidate):
+            trust_score += 55
+            category = "public-sector"
+            reasons.append("Public-sector/education suffix match.")
+
+        if any(host.endswith(domain) or base_domain.endswith(domain) for domain in TRUSTED_ENTERPRISE_DOMAINS):
+            trust_score += 42
+            category = "trusted-provider"
+            reasons.append("Known trusted enterprise/provider domain match.")
+
+        if any(keyword in host for keyword in TRUSTED_TRANSPORT_KEYWORDS):
+            trust_score += 18
+            if category == "untrusted":
+                category = "transport-portal"
+            reasons.append("Transportation portal keyword context.")
+
+        if any(token in normalized_url.lower() for token in TRUSTED_OAUTH_HINTS):
+            trust_score += 22
+            if category == "untrusted":
+                category = "trusted-auth"
+            reasons.append("Trusted OAuth/SSO authentication endpoint context.")
+
+        trust_score = max(0, min(100, trust_score))
+        is_trusted = trust_score >= 45
+        if not reasons:
+            reasons.append("No explicit trusted-domain indicators.")
+        return {
+            "is_trusted": is_trusted,
+            "trust_score": trust_score,
+            "trust_category": category,
+            "reasons": reasons,
+        }
+
+    def _is_weak_context_signal(self, signal: SignalEvidence) -> bool:
+        text_blob = " ".join(
+            [
+                signal.code.lower(),
+                signal.title.lower(),
+                signal.description.lower(),
+                signal.category.lower(),
+            ]
+        )
+        if any(token in text_blob for token in WEAK_CONTEXT_TERMS):
+            return True
+        return signal.code in {
+            "content-urgency-pressure",
+            "content-emotional-amplification",
+            "content-impersonation-language",
+            "dom-urgency-banner-language",
+            "dom-fake-modal-injection",
+            "dom-excessive-hidden-elements",
+            "dom-suspicious-event-listeners",
+            "url-deep-path",
+            "url-medium-entropy-host",
+            "url-suspicious-query-params",
+        }
+
+    def _downgrade_signal(
+        self,
+        *,
+        signal: SignalEvidence,
+        reason: str,
+        score_penalty: int,
+        confidence_penalty: float,
+    ) -> dict[str, Any]:
+        original = {
+            "severity": signal.severity,
+            "score_impact": signal.score_impact,
+            "confidence": signal.confidence,
+        }
+        signal.score_impact = max(1, signal.score_impact - score_penalty)
+        signal.confidence = max(0.2, round(signal.confidence - confidence_penalty, 2))
+        signal.reliability = max(0.35, round(signal.reliability - 0.08, 2))
+        signal.reasoning_context = reason
+        severity_order = ["info", "low", "medium", "high", "critical"]
+        current_index = severity_order.index(signal.severity) if signal.severity in severity_order else 2
+        signal.severity = severity_order[max(0, current_index - 1)]
+        signal.analyst_details = {
+            **signal.analyst_details,
+            "calibration_note": reason,
+            "original_signal_state": original,
+        }
+        return {
+            "code": signal.code,
+            "reason": reason,
+            "original": original,
+            "updated": {
+                "severity": signal.severity,
+                "score_impact": signal.score_impact,
+                "confidence": signal.confidence,
+            },
+        }
+
     def _signal(
         self,
         code: str,
@@ -1135,6 +1481,10 @@ class ThreatSignalExtractor:
         category: str,
         score_impact: int | None = None,
         confidence: float = 0.7,
+        reliability: float = 0.74,
+        reasoning_context: str | None = None,
+        source_module: str | None = "signal_extractor",
+        analyst_details: dict[str, Any] | None = None,
         value: Any | None = None,
     ) -> SignalEvidence:
         impact = score_impact if score_impact is not None else SEVERITY_DEFAULT_IMPACT.get(severity, 8)
@@ -1147,5 +1497,10 @@ class ThreatSignalExtractor:
             category=category,
             score_impact=max(1, min(35, impact)),
             confidence=max(0.0, min(0.99, confidence)),
+            reliability=max(0.2, min(0.99, reliability)),
+            reasoning_context=reasoning_context,
+            escalation_contribution=max(1, min(35, impact)),
+            source_module=source_module,
+            analyst_details=analyst_details or {},
             value=value,
         )

@@ -19,6 +19,60 @@ CLASSIFICATION_RANK = {
     "critical": 3,
 }
 
+STRONG_SIGNAL_CODES = {
+    "dom-external-credential-post",
+    "dom-hidden-password-field",
+    "dom-hidden-credential-form",
+    "dom-credential-form-blank-action",
+    "dom-downgraded-form-post",
+    "dom-meta-refresh-redirect",
+    "dom-scripted-redirect-logic",
+    "dom-obfuscated-javascript",
+    "dom-anti-user-interaction-script",
+    "dom-clipboard-manipulation",
+    "dom-deceptive-popup-pattern",
+    "dom-fullscreen-coercion",
+    "interaction-triggered-redirect",
+    "interaction-hidden-credential-reveal",
+    "interaction-dynamic-form-injection",
+    "interaction-overlay-injection",
+    "content-credential-request",
+    "content-scare-tactics",
+}
+BEHAVIORAL_PHISHING_CODES = {
+    "dom-external-credential-post",
+    "dom-hidden-password-field",
+    "dom-hidden-credential-form",
+    "dom-credential-form-blank-action",
+    "dom-downgraded-form-post",
+    "dom-meta-refresh-redirect",
+    "dom-scripted-redirect-logic",
+    "interaction-triggered-redirect",
+    "interaction-hidden-credential-reveal",
+    "interaction-dynamic-form-injection",
+    "interaction-overlay-injection",
+    "interaction-iframe-insertion",
+}
+DOM_ABUSE_CODES = {
+    "dom-obfuscated-javascript",
+    "dom-anti-user-interaction-script",
+    "dom-clipboard-manipulation",
+    "dom-fullscreen-coercion",
+    "dom-deceptive-popup-pattern",
+}
+WEAK_SIGNAL_CODES = {
+    "content-urgency-pressure",
+    "content-emotional-amplification",
+    "content-impersonation-language",
+    "dom-urgency-banner-language",
+    "dom-fake-modal-injection",
+    "dom-excessive-hidden-elements",
+    "dom-suspicious-event-listeners",
+    "url-deep-path",
+    "url-medium-entropy-host",
+    "url-suspicious-query-params",
+}
+
 
 class ThreatReasoningEngine:
     def __init__(self, weights: ReasoningWeights | None = None) -> None:
@@ -35,15 +89,40 @@ class ThreatReasoningEngine:
         reputation_score: int,
         reputation_confidence: float,
     ) -> ReasoningResult:
-        url_structural_score = self._aggregate(extraction.url_signals)
-        model_signal_score = self._aggregate(extraction.model_signals)
+        trust_profile = extraction.metadata.get("domain_trust", {}) if extraction.metadata else {}
+        all_signals = extraction.all_signals
+        strong_signals = [signal for signal in all_signals if self._is_strong_signal(signal)]
+        has_strong_behavioral = bool(strong_signals)
+
+        url_structural_score = self._aggregate(
+            extraction.url_signals,
+            has_strong_behavioral=has_strong_behavioral,
+            trust_profile=trust_profile,
+        )
+        model_signal_score = self._aggregate(
+            extraction.model_signals,
+            has_strong_behavioral=has_strong_behavioral,
+            trust_profile=trust_profile,
+        )
         phishing_probability = max(url_structural_score, model_signal_score, self._clamp_score(url_model_score))
 
-        dom_suspicion = self._aggregate(extraction.dom_signals)
-        content_rule_score = self._aggregate(extraction.content_signals)
+        dom_suspicion = self._aggregate(
+            extraction.dom_signals,
+            has_strong_behavioral=has_strong_behavioral,
+            trust_profile=trust_profile,
+        )
+        content_rule_score = self._aggregate(
+            extraction.content_signals,
+            has_strong_behavioral=has_strong_behavioral,
+            trust_profile=trust_profile,
+        )
         content_scam_score = max(content_rule_score, self._clamp_score(nlp_score))
 
-        reputation_signal_score = self._aggregate(extraction.reputation_signals)
+        reputation_signal_score = self._aggregate(
+            extraction.reputation_signals,
+            has_strong_behavioral=has_strong_behavioral,
+            trust_profile=trust_profile,
+        )
         reputation_component = max(reputation_signal_score, self._clamp_score(reputation_score))
 
         redirect_risk = self._redirect_risk(extraction.redirect_chain, extraction.dom_signals)
@@ -56,7 +135,7 @@ class ThreatReasoningEngine:
             "redirect_risk": redirect_risk,
         }
         effective_weights = self._effective_weights(component_scores)
-
+        calibration_notes: list[str] = []
         weighted_components = {
             "phishing_probability": phishing_probability * effective_weights["phishing_probability"],
             "dom_suspicion": dom_suspicion * effective_weights["dom_suspicion"],
@@ -65,12 +144,66 @@ class ThreatReasoningEngine:
             "redirect_risk": redirect_risk * effective_weights["redirect_risk"],
         }
         final_score = int(round(sum(weighted_components.values())))
+        risk_cap: int | None = None
+
+        attack_pattern_detected = any(pattern.confidence >= 0.72 for pattern in extraction.attack_patterns)
+        behavioral_indicator_detected = any(signal.code in BEHAVIORAL_PHISHING_CODES for signal in all_signals)
+        dom_abuse_detected = any(signal.code in DOM_ABUSE_CODES for signal in all_signals)
+        trusted_domain = bool(trust_profile.get("is_trusted"))
+
+        if not attack_pattern_detected and not behavioral_indicator_detected and not dom_abuse_detected:
+            risk_cap = 20
+            calibration_notes.append(
+                "No phishing behavior detected. Escalation blocked because no behavioral indicators, attack patterns, or DOM abuse were observed."
+            )
+            calibration_notes.append(
+                "Weak signals ignored due to trusted domain context or low-context evidence profile."
+            )
+
+        if trusted_domain and not strong_signals:
+            trust_cap = 12
+            risk_cap = min(risk_cap, trust_cap) if risk_cap is not None else trust_cap
+            calibration_notes.append(
+                "Trusted domain context required stronger corroboration; weak contextual indicators were suppressed."
+            )
+
+        if final_score >= 50 and len(strong_signals) < 2 and not attack_pattern_detected:
+            cap = 45
+            risk_cap = min(risk_cap, cap) if risk_cap is not None else cap
+            calibration_notes.append(
+                "High-risk escalation blocked because strong correlated phishing evidence was insufficient."
+            )
+
+        if (
+            not trusted_domain
+            and self._has_dom_abuse_cluster(extraction.dom_signals)
+            and final_score < 26
+        ):
+            final_score = 26
+            calibration_notes.append(
+                "Risk elevated to Suspicious due to correlated DOM abuse indicators (notification/popup manipulation behavior)."
+            )
+
+        if (
+            not trusted_domain
+            and self._has_correlated_social_scam(extraction)
+            and final_score < 26
+        ):
+            final_score = 26
+            calibration_notes.append(
+                "Risk elevated to Suspicious due to correlated social-engineering scam indicators and risky URL context."
+            )
+
+        if risk_cap is not None:
+            final_score = min(final_score, risk_cap)
+
         classification = self._classify(final_score)
 
-        all_signals = extraction.all_signals
         top_evidence = self._rank_evidence(all_signals)[:14]
         reason_chain = self._reason_chain(top_evidence, weighted_components)
-        summary = self._summary(classification, top_evidence)
+        if calibration_notes:
+            reason_chain.extend(calibration_notes[:3])
+        summary = self._summary(classification, top_evidence, calibration_notes)
         actions = self._recommended_actions(classification, top_evidence)
         indicators = self._indicators(extraction)
 
@@ -87,6 +220,8 @@ class ThreatReasoningEngine:
                 "redirect_risk": redirect_risk,
             },
         )
+        if risk_cap is not None and not strong_signals:
+            confidence = min(confidence, 0.62)
 
         severity_counter = Counter(signal.severity for signal in all_signals)
         signal_counts = {
@@ -130,21 +265,38 @@ class ThreatReasoningEngine:
             timeline=timeline,
             attack_patterns=extraction.attack_patterns,
             confidence_progression=confidence_progression,
+            calibration_notes=calibration_notes,
+            risk_cap=risk_cap,
         )
 
-    def _aggregate(self, signals: list[SignalEvidence]) -> int:
+    def _aggregate(
+        self,
+        signals: list[SignalEvidence],
+        *,
+        has_strong_behavioral: bool,
+        trust_profile: dict,
+    ) -> int:
         if not signals:
             return 0
+        trusted_domain = bool(trust_profile.get("is_trusted"))
         weighted_sum = 0.0
         for signal in signals:
+            if self._is_weak_signal(signal) and not has_strong_behavioral:
+                signal.escalation_contribution = 0
+                continue
             severity_multiplier = {
                 "info": 0.4,
-                "low": 0.6,
-                "medium": 1.0,
-                "high": 1.18,
-                "critical": 1.32,
+                "low": 0.55,
+                "medium": 0.95,
+                "high": 1.12,
+                "critical": 1.24,
             }.get(signal.severity, 1.0)
-            weighted_sum += signal.score_impact * severity_multiplier
+            reliability_multiplier = max(0.35, min(1.0, signal.reliability))
+            weak_signal_factor = 0.22 if self._is_weak_signal(signal) else 1.0
+            trust_factor = 0.35 if trusted_domain and self._is_weak_signal(signal) else (0.8 if trusted_domain else 1.0)
+            contribution = signal.score_impact * severity_multiplier * reliability_multiplier * weak_signal_factor * trust_factor
+            weighted_sum += contribution
+            signal.escalation_contribution = max(signal.escalation_contribution, int(round(contribution)))
         return self._clamp_score(int(round(weighted_sum)))
 
     def _redirect_risk(self, redirect_chain: list[str], dom_signals: list[SignalEvidence]) -> int:
@@ -157,11 +309,73 @@ class ThreatReasoningEngine:
         behavior_risk = min(35, sum(signal.score_impact for signal in redirect_signals))
         return self._clamp_score(chain_risk + behavior_risk)
 
+    def _is_strong_signal(self, signal: SignalEvidence) -> bool:
+        if signal.code in STRONG_SIGNAL_CODES:
+            return True
+        if signal.category in {"credential-harvest", "behavioral-flow"} and signal.severity in {"high", "critical"}:
+            return True
+        return signal.severity == "critical"
+
+    def _is_weak_signal(self, signal: SignalEvidence) -> bool:
+        if signal.code in WEAK_SIGNAL_CODES:
+            return True
+        text = " ".join(
+            [
+                signal.code.lower(),
+                signal.title.lower(),
+                signal.description.lower(),
+                signal.category.lower(),
+            ]
+        )
+        return any(term in text for term in ("mailto", "contact", "footer", "support email", "newsletter"))
+
+    def _has_dom_abuse_cluster(self, dom_signals: list[SignalEvidence]) -> bool:
+        cluster_codes = {
+            "dom-notification-abuse",
+            "dom-deceptive-popup-pattern",
+            "dom-obfuscated-javascript",
+            "dom-fullscreen-coercion",
+            "dom-clipboard-manipulation",
+        }
+        hits = [signal for signal in dom_signals if signal.code in cluster_codes and signal.severity in {"medium", "high", "critical"}]
+        return len(hits) >= 2
+
+    def _has_correlated_social_scam(self, extraction: SignalExtractionResult) -> bool:
+        social_pattern = any(
+            pattern.code == "social-engineering-scam" and pattern.confidence >= 0.72
+            for pattern in extraction.attack_patterns
+        )
+        if not social_pattern:
+            return False
+        content_codes = {signal.code for signal in extraction.content_signals}
+        risky_content_present = bool(
+            {
+                "content-fake-reward",
+                "content-payment-pressure",
+                "content-credential-request",
+                "content-scare-tactics",
+            }
+            & content_codes
+        )
+        url_codes = {signal.code for signal in extraction.url_signals}
+        risky_url_present = bool(
+            {
+                "url-suspicious-tld",
+                "url-typosquat-pattern",
+                "url-ip-host",
+                "url-shortener",
+                "url-idn-spoof-risk",
+            }
+            & url_codes
+        )
+        return risky_content_present and risky_url_present
+
     def _rank_evidence(self, signals: list[SignalEvidence]) -> list[SignalEvidence]:
         return sorted(
             signals,
             key=lambda signal: (
                 SEVERITY_RANK.get(signal.severity, 0),
+                signal.reliability,
                 signal.score_impact,
                 signal.confidence,
             ),
@@ -171,14 +385,31 @@ class ThreatReasoningEngine:
     def _reason_chain(self, top_evidence: list[SignalEvidence], weighted_components: dict[str, float]) -> list[str]:
         chain: list[str] = []
         for signal in top_evidence[:6]:
-            chain.append(f"{signal.title}: {signal.description}")
+            chain.append(
+                f"{signal.title}: {signal.description} "
+                f"(confidence {signal.confidence:.2f}, reliability {signal.reliability:.2f}, "
+                f"escalation +{signal.escalation_contribution})"
+            )
 
         component_rank = sorted(weighted_components.items(), key=lambda item: item[1], reverse=True)
         for component, contribution in component_rank[:2]:
             chain.append(f"Component '{component}' contributed {contribution:.1f} risk points.")
         return chain
 
-    def _summary(self, classification: str, top_evidence: list[SignalEvidence]) -> str:
+    def _summary(
+        self,
+        classification: str,
+        top_evidence: list[SignalEvidence],
+        calibration_notes: list[str] | None = None,
+    ) -> str:
+        notes = calibration_notes or []
+        if notes and classification == "Safe":
+            return (
+                "No phishing behavior detected. "
+                "Weak signals ignored due to trusted domain context or insufficient corroboration. "
+                "No escalation triggered due to lack of behavioral evidence."
+            )
+
         if not top_evidence and classification == "Safe":
             return "No high-confidence phishing indicators were detected across URL, content, and behavior signals."
 
@@ -295,25 +526,13 @@ class ThreatReasoningEngine:
         return max(0, min(100, score))
 
     def _effective_weights(self, component_scores: dict[str, int]) -> dict[str, float]:
-        base_weights = {
+        return {
             "phishing_probability": self.weights.phishing_probability,
             "dom_suspicion": self.weights.dom_suspicion,
             "content_scam_score": self.weights.content_scam_score,
             "reputation_score": self.weights.reputation_score,
             "redirect_risk": self.weights.redirect_risk,
         }
-        active_components = [name for name, value in component_scores.items() if value > 0]
-        if not active_components:
-            return base_weights
-
-        active_weight_total = sum(base_weights[name] for name in active_components)
-        if active_weight_total <= 0:
-            return base_weights
-
-        adjusted = {name: 0.0 for name in base_weights}
-        for name in active_components:
-            adjusted[name] = base_weights[name] / active_weight_total
-        return adjusted
 
     def _build_timeline(
         self,

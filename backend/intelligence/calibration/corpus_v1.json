@@ -1,0 +1,142 @@
+[
+  {
+    "id": "phish_credential_external_post",
+    "label": "malicious",
+    "category": "credential_harvest",
+    "url": "https://secure-update-account-check.example-security-center.com/session",
+    "text": "URGENT: Your account has been suspended. Verify your password immediately to avoid permanent lock.",
+    "html": "<html><body><h1>Security verification required</h1><form id='verify-session' style='display:none' action='https://auth-check-login.ru/session'><input name='email'/><input type='password' name='password'/><button>Verify</button></form><button onclick=\"document.getElementById('verify-session').style.display='block'\">Continue</button></body></html>",
+    "expected_patterns": ["credential-harvesting", "fake-account-verification", "social-engineering-scam"],
+    "expected_classification_min": "Dangerous"
+  },
+  {
+    "id": "phish_redirect_chain_overlay",
+    "label": "malicious",
+    "category": "redirect_flow",
+    "url": "https://alert-security-notice-check.example.net/verify",
+    "text": "Final warning. Unauthorized login detected. Continue verification now.",
+    "html": "<html><head><meta http-equiv='refresh' content='0;url=https://secure-verify-login-now.ru'></head><body><div class='overlay modal' style='position:fixed;z-index:6000'>Confirm account</div><script>window.location='https://secure-verify-login-now.ru'</script></body></html>",
+    "expected_patterns": ["redirect-based-phishing", "fake-security-warning"],
+    "expected_classification_min": "Dangerous"
+  },
+  {
+    "id": "phish_notification_lure",
+    "label": "malicious",
+    "category": "notification_scam",
+    "url": "https://browser-alert-updates.example.click",
+    "text": "Allow notifications to continue security scan and remove threats now.",
+    "html": "<html><body><script>Notification.requestPermission(); alert('Security warning');</script><button>Allow</button></body></html>",
+    "expected_patterns": ["notification-abuse-scam", "social-engineering-scam"],
+    "expected_classification_min": "Suspicious"
+  },
+  {
+    "id": "scam_reward_airdrop",
+    "label": "malicious",
+    "category": "reward_bait",
+    "url": "https://bonus-claim-wallet.example.top/reward",
+    "text": "Congratulations winner! Claim your bonus airdrop now. Act now before it expires.",
+    "html": "<html><body><h2>Winner selected</h2><button>Claim reward</button></body></html>",
+    "expected_patterns": ["social-engineering-scam"],
+    "expected_classification_min": "Suspicious"
+  },
+  {
+    "id": "benign_google_oauth",
+    "label": "benign",
+    "category": "oauth_flow",
+    "url": "https://accounts.google.com/o/oauth2/v2/auth",
+    "text": "Sign in with Google to continue to your trusted application.",
+    "html": "<html><body><h1>Sign in with Google</h1><button>Continue</button><a href='https://accounts.google.com/o/oauth2/auth'>OAuth consent</a></body></html>",
+    "expected_patterns": [],
+    "expected_classification_max": "Suspicious"
+  },
+  {
+    "id": "benign_microsoft_oauth",
+    "label": "benign",
+    "category": "oauth_flow",
+    "url": "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+    "text": "Continue with Microsoft account to sign in to the requested app.",
+    "html": "<html><body><button>Continue with Microsoft</button><p>Single sign-on</p></body></html>",
+    "expected_patterns": [],
+    "expected_classification_max": "Suspicious"
+  },
+  {
+    "id": "benign_corporate_mfa",
+    "label": "benign",
+    "category": "mfa_prompt",
+    "url": "https://login.corporate-portal.example.com/mfa",
+    "text": "Enter the 6-digit code from your authenticator app to complete sign in.",
+    "html": "<html><body><form action='/mfa/verify'><input name='otp'/><button>Verify</button></form></body></html>",
+    "expected_patterns": [],
+    "expected_classification_max": "Suspicious"
+  },
+  {
+    "id": "benign_newsletter_popup",
+    "label": "benign",
+    "category": "newsletter_popup",
+    "url": "https://news.example.com",
+    "text": "Subscribe to our newsletter for updates and product news.",
+    "html": "<html><body><div class='modal popup' style='position:fixed;z-index:1200'><button>Subscribe</button></div></body></html>",
+    "expected_patterns": [],
+    "expected_classification_max": "Suspicious"
+  },
+  {
+    "id": "benign_banking_login",
+    "label": "benign",
+    "category": "bank_login",
+    "url": "https://secure.bank.example.com/login",
+    "text": "Welcome back. Sign in to online banking.",
+    "html": "<html><body><form action='https://secure.bank.example.com/login/submit'><input name='username'/><input type='password' name='password'/></form></body></html>",
+    "expected_patterns": [],
+    "expected_classification_max": "Suspicious"
+  },
+  {
+    "id": "benign_saas_auth",
+    "label": "benign",
+    "category": "saas_login",
+    "url": "https://app.workspace.example.com/signin",
+    "text": "Sign in to Workspace. Continue with SSO or email login.",
+    "html": "<html><body><button>Continue with SSO</button><form action='/signin'><input name='email'/><input type='password' name='password'/></form></body></html>",
+    "expected_patterns": [],
+    "expected_classification_max": "Suspicious"
+  },
+  {
+    "id": "benign_government_portal_pk",
+    "label": "benign",
+    "category": "government_portal",
+    "url": "https://services.gov.pk/citizen-portal",
+    "text": "Official Government of Pakistan services portal. For assistance contact support via email.",
+    "html": "<html><body><header>Government Services</header><main><h1>Citizen Services</h1><p>Need help? Reach out to support.</p><a href='mailto:helpdesk@gov.pk'>Email Support</a></main><footer>Contact Center: +92-21-111-111 | support@gov.pk</footer></body></html>",
+    "expected_patterns": [],
+    "expected_classification_max": "Safe"
+  },
+  {
+    "id": "benign_university_portal",
+    "label": "benign",
+    "category": "university_portal",
+    "url": "https://portal.university.edu/student-login",
+    "text": "University student portal login for class schedules and exam registration.",
+    "html": "<html><body><h1>Student Portal</h1><form action='/student-login'><input name='email'/><input type='password' name='password'/><button>Sign in</button></form><footer><a href='mailto:it-support@university.edu'>IT Support</a></footer></body></html>",
+    "expected_patterns": [],
+    "expected_classification_max": "Safe"
+  },
+  {
+    "id": "ambiguous_marketing_urgency",
+    "label": "ambiguous",
+    "category": "marketing_urgency",
+    "url": "https://offers.example.com/limited",
+    "text": "Limited time offer ends today. Act now for savings.",
+    "html": "<html><body><h1>Limited time offer</h1><button>Continue</button></body></html>",
+    "expected_patterns": [],
+    "expected_classification_max": "Suspicious"
+  },
+  {
+    "id": "ambiguous_account_notice",
+    "label": "ambiguous",
+    "category": "account_notice",
+    "url": "https://portal.example.com/security-notice",
+    "text": "Security notice: We detected a new sign-in. Please review account activity.",
+    "html": "<html><body><a href='/account/security'>Review activity</a></body></html>",
+    "expected_patterns": [],
+    "expected_classification_max": "Dangerous"
+  }
+]

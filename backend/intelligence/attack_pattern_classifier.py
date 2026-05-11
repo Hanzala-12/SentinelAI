@@ -6,6 +6,7 @@ from backend.intelligence.models import AttackPatternLabel, SignalExtractionResu
 class AttackPatternClassifier:
     def classify(self, extraction: SignalExtractionResult) -> list[AttackPatternLabel]:
         evidence_codes = {signal.code for signal in extraction.all_signals}
+        evidence_map = {signal.code: signal for signal in extraction.all_signals}
         patterns: list[AttackPatternLabel] = []
 
         def add_pattern(
@@ -15,11 +16,37 @@ class AttackPatternClassifier:
             description: str,
             confidence: float,
             required_codes: set[str],
+            min_matches: int = 2,
+            allow_single_strong_match: bool = False,
         ) -> None:
             matched = sorted(required_codes & evidence_codes)
             if not matched:
                 return
-            adjusted_confidence = min(0.98, confidence + min(0.2, len(matched) * 0.04))
+            strong_hits = [
+                evidence_map[item]
+                for item in matched
+                if item in evidence_map and evidence_map[item].severity in {"high", "critical"}
+            ]
+            if len(matched) < min_matches:
+                if not (allow_single_strong_match and len(matched) == 1 and strong_hits):
+                    return
+            reliability_avg = sum(evidence_map[code].reliability for code in matched if code in evidence_map) / max(
+                1, len(matched)
+            )
+            high_severity_hits = sum(
+                1
+                for code in matched
+                if code in evidence_map and evidence_map[code].severity in {"high", "critical"}
+            )
+            adjusted_confidence = min(
+                0.98,
+                confidence
+                + min(0.16, len(matched) * 0.035)
+                + min(0.12, high_severity_hits * 0.03)
+                + (reliability_avg - 0.65) * 0.18,
+            )
+            if adjusted_confidence < 0.62 and len(matched) == 1:
+                return
             patterns.append(
                 AttackPatternLabel(
                     code=code,
@@ -44,7 +71,11 @@ class AttackPatternClassifier:
                 "interaction-hidden-credential-reveal",
                 "interaction-dynamic-form-injection",
                 "content-credential-request",
+                "dom-credential-form-blank-action",
+                "dom-downgraded-form-post",
             },
+            min_matches=1,
+            allow_single_strong_match=True,
         )
 
         add_pattern(
@@ -59,6 +90,8 @@ class AttackPatternClassifier:
                 "dom-scripted-redirect-logic",
                 "interaction-triggered-redirect",
             },
+            min_matches=1,
+            allow_single_strong_match=True,
         )
 
         add_pattern(
@@ -72,6 +105,7 @@ class AttackPatternClassifier:
                 "url-idn-spoof-risk",
                 "content-impersonation-language",
             },
+            min_matches=2,
         )
 
         add_pattern(
@@ -79,7 +113,13 @@ class AttackPatternClassifier:
             title="Notification Abuse Scam",
             description="Evidence indicates browser notification abuse patterns used for persistent phishing prompts.",
             confidence=0.72,
-            required_codes={"dom-notification-abuse"},
+            required_codes={
+                "dom-notification-abuse",
+                "interaction-popup-scare-flow",
+                "content-scare-tactics",
+                "dom-urgency-banner-language",
+            },
+            min_matches=2,
         )
 
         add_pattern(
@@ -95,6 +135,7 @@ class AttackPatternClassifier:
                 "content-scare-tactics",
                 "interaction-overlay-injection",
             },
+            min_matches=2,
         )
 
         add_pattern(
@@ -112,6 +153,7 @@ class AttackPatternClassifier:
                 "content-emotional-amplification",
                 "dom-urgency-banner-language",
             },
+            min_matches=2,
         )
 
         add_pattern(
@@ -120,6 +162,8 @@ class AttackPatternClassifier:
             description="Evidence indicates clipboard manipulation logic likely intended to hijack copied sensitive data.",
             confidence=0.77,
             required_codes={"dom-clipboard-manipulation"},
+            min_matches=1,
+            allow_single_strong_match=True,
         )
 
         add_pattern(
@@ -134,11 +178,15 @@ class AttackPatternClassifier:
                 "interaction-popup-scare-flow",
                 "dom-deceptive-popup-pattern",
             },
+            min_matches=2,
         )
 
         interaction_event_count = len(extraction.interaction_events)
         interaction_indicator_count = sum(len(event.new_indicator_codes) for event in extraction.interaction_events)
         if interaction_event_count >= 2 and interaction_indicator_count >= 2:
+            interaction_confidence = (
+                sum(event.confidence_after for event in extraction.interaction_events) / interaction_event_count
+            )
             patterns.append(
                 AttackPatternLabel(
                     code="multi-step-phishing-flow",
@@ -146,7 +194,15 @@ class AttackPatternClassifier:
                     description=(
                         "Controlled interaction revealed multi-stage phishing behavior with progressive indicators."
                     ),
-                    confidence=round(min(0.96, 0.74 + min(0.2, interaction_indicator_count * 0.04)), 2),
+                    confidence=round(
+                        min(
+                            0.96,
+                            0.68
+                            + min(0.16, interaction_indicator_count * 0.03)
+                            + min(0.1, (interaction_confidence - 0.5) * 0.25),
+                        ),
+                        2,
+                    ),
                     evidence_codes=sorted(
                         {
                             code

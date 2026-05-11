@@ -22,6 +22,11 @@ type EvidenceItem = {
   category: string
   score_impact: number
   confidence: number
+  reliability: number
+  reasoning_context?: string | null
+  escalation_contribution: number
+  source_module?: string | null
+  analyst_details?: Record<string, unknown>
   value?: unknown
 }
 
@@ -59,7 +64,7 @@ type InteractionReplayEvent = {
   url_after: string
   redirect_triggered: boolean
   new_indicator_codes: string[]
-  dom_mutations: Record<string, number>
+  dom_mutations: Record<string, unknown>
   confidence_after: number
 }
 
@@ -189,6 +194,21 @@ function confidenceTone(confidence: number): string {
   return 'text-slate-700'
 }
 
+function extractApiErrorDetail(payload: unknown): string | null {
+  if (typeof payload === 'string') return payload
+  if (!payload || typeof payload !== 'object') return null
+
+  const detail = (payload as { detail?: unknown }).detail
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail) && detail.length > 0) {
+    const first = detail[0]
+    if (first && typeof first === 'object' && 'msg' in first && typeof first.msg === 'string') {
+      return first.msg
+    }
+  }
+  return null
+}
+
 export default function App() {
   const [health, setHealth] = useState<HealthState | null>(null)
   const [healthLoading, setHealthLoading] = useState(true)
@@ -200,6 +220,7 @@ export default function App() {
   const [authError, setAuthError] = useState<string | null>(null)
 
   const [activePage, setActivePage] = useState<PageKey>('Home')
+  const [analystMode, setAnalystMode] = useState(false)
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null)
   const [history, setHistory] = useState<HistoryItem[]>([])
   const [historyQuery, setHistoryQuery] = useState('')
@@ -270,8 +291,12 @@ export default function App() {
       setTokenState(response.data.access_token)
     } catch (error) {
       if (axios.isAxiosError(error)) {
-        const detail = typeof error.response?.data?.detail === 'string' ? error.response.data.detail : null
-        if (error.response?.status === 409) {
+        const detail = extractApiErrorDetail(error.response?.data)
+        if (!error.response) {
+          setAuthError('Could not reach the API server. Make sure backend is running on the configured URL.')
+        } else if (error.response.status === 422) {
+          setAuthError(detail ?? 'Invalid email or password format.')
+        } else if (error.response?.status === 409) {
           setAuthError(detail ?? 'Account already exists. Try login.')
         } else if (error.response?.status === 401) {
           setAuthError(detail ?? 'Invalid credentials.')
@@ -473,6 +498,14 @@ export default function App() {
               {page}
             </button>
           ))}
+          <button
+            onClick={() => setAnalystMode((value) => !value)}
+            className={`rounded-xl border px-4 py-2 text-sm font-medium ${
+              analystMode ? 'border-sky-500 bg-sky-50 text-sky-800' : 'border-slate-300 text-slate-700 hover:bg-slate-100'
+            }`}
+          >
+            {analystMode ? 'Analyst Mode On' : 'Analyst Mode Off'}
+          </button>
           <button
             onClick={logout}
             className="ml-auto rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
@@ -724,6 +757,20 @@ export default function App() {
                       <p className="mt-2 text-[11px] text-slate-600">
                         Source: {item.source} | Category: {item.category} | Impact: {item.score_impact}
                       </p>
+                      <p className="mt-1 text-[11px] text-slate-600">
+                        Confidence: {Math.round(item.confidence * 100)}% | Reliability: {Math.round(item.reliability * 100)}% | Escalation: +{item.escalation_contribution}
+                      </p>
+                      {analystMode && (
+                        <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2">
+                          <p className="text-[11px] text-slate-700">Reasoning: {item.reasoning_context ?? 'N/A'}</p>
+                          <p className="mt-1 text-[11px] text-slate-700">Source Module: {item.source_module ?? 'N/A'}</p>
+                          {item.analyst_details && (
+                            <pre className="mt-1 overflow-x-auto whitespace-pre-wrap text-[10px] text-slate-600">
+                              {JSON.stringify(item.analyst_details, null, 2)}
+                            </pre>
+                          )}
+                        </div>
+                      )}
                     </article>
                   ))}
                   <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
@@ -913,6 +960,34 @@ export default function App() {
                     <p className="mt-1">Redirect Chain: {latestScan.technical_findings.redirect_chain.length || 0}</p>
                   </div>
 
+                  {analystMode && (
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Calibration & Suppression Notes</p>
+                      {Array.isArray((latestScan.technical_findings.metadata?.suppressed_detections as Array<unknown> | undefined)) &&
+                      (latestScan.technical_findings.metadata?.suppressed_detections as Array<unknown>).length > 0 ? (
+                        <div className="mt-2 space-y-2">
+                          {(latestScan.technical_findings.metadata.suppressed_detections as Array<unknown>).map((item, idx) => (
+                            <div key={`suppression-${idx}`} className="rounded-lg border border-slate-200 bg-white p-2">
+                              <pre className="overflow-x-auto whitespace-pre-wrap text-[10px] text-slate-700">{JSON.stringify(item, null, 2)}</pre>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-2 text-xs text-slate-500">No signal suppression adjustments recorded for this scan.</p>
+                      )}
+                      {Array.isArray((latestScan.technical_findings.metadata?.interaction_simulation as Record<string, unknown> | undefined)?.suppressed_interaction_indicators as Array<unknown> | undefined) &&
+                      ((latestScan.technical_findings.metadata?.interaction_simulation as Record<string, unknown>).suppressed_interaction_indicators as Array<unknown>).length > 0 && (
+                        <div className="mt-2 space-y-2">
+                          {((latestScan.technical_findings.metadata?.interaction_simulation as Record<string, unknown>).suppressed_interaction_indicators as Array<unknown>).map((item, idx) => (
+                            <div key={`interaction-suppression-${idx}`} className="rounded-lg border border-slate-200 bg-white p-2">
+                              <pre className="overflow-x-auto whitespace-pre-wrap text-[10px] text-slate-700">{JSON.stringify(item, null, 2)}</pre>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                     <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Interaction Replay Timeline</p>
                     {!latestScan.technical_findings.interaction_events?.length ? (
@@ -986,7 +1061,7 @@ export default function App() {
                             <p className="text-xs font-medium text-slate-800">{event.step_id}</p>
                             <p className="mt-1 text-[11px] text-slate-600">
                               {Object.entries(event.dom_mutations)
-                                .map(([key, value]) => `${key}:${value}`)
+                                .map(([key, value]) => `${key}:${typeof value === 'string' ? value : JSON.stringify(value)}`)
                                 .join(' | ')}
                             </p>
                           </div>
@@ -1033,6 +1108,20 @@ export default function App() {
                               </span>
                               <span className="font-medium">{signal.title}</span>
                               <p className="mt-1 text-[11px] text-slate-600">{signal.description}</p>
+                              <p className="mt-1 text-[10px] text-slate-600">
+                                Confidence {Math.round(signal.confidence * 100)}% | Reliability {Math.round(signal.reliability * 100)}% | Escalation +{signal.escalation_contribution}
+                              </p>
+                              {analystMode && (
+                                <div className="mt-1 rounded border border-slate-200 bg-slate-50 p-1">
+                                  <p className="text-[10px] text-slate-700">Context: {signal.reasoning_context ?? 'N/A'}</p>
+                                  <p className="text-[10px] text-slate-700">Module: {signal.source_module ?? 'N/A'}</p>
+                                  {signal.analyst_details && (
+                                    <pre className="mt-1 overflow-x-auto whitespace-pre-wrap text-[10px] text-slate-600">
+                                      {JSON.stringify(signal.analyst_details, null, 2)}
+                                    </pre>
+                                  )}
+                                </div>
+                              )}
                             </li>
                           ))}
                         </ul>

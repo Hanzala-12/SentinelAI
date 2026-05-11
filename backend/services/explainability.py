@@ -49,6 +49,19 @@ class ExplainabilityService:
             segments.extend(intel_notes[:2])
         if extraction.fetch_error:
             segments.append(f"DOM collection warning: {extraction.fetch_error}.")
+        trust_profile = extraction.metadata.get("domain_trust", {}) if extraction.metadata else {}
+        if trust_profile.get("is_trusted"):
+            trust_score = trust_profile.get("trust_score", 0)
+            segments.append(
+                f"Trusted domain context detected (trust score {trust_score}/100); weak contextual indicators were suppressed unless strong phishing behavior was present."
+            )
+        suppressed = extraction.metadata.get("suppressed_detections", [])
+        if isinstance(suppressed, list) and suppressed:
+            segments.append(
+                f"Calibration layer downgraded {len(suppressed)} low-context indicators to reduce false positives."
+            )
+        if reasoning.calibration_notes:
+            segments.extend(reasoning.calibration_notes[:3])
         if reasoning.top_evidence:
             segments.append(
                 "Primary forensic findings: "
@@ -127,6 +140,11 @@ class ExplainabilityService:
             category=signal.category,
             score_impact=signal.score_impact,
             confidence=signal.confidence,
+            reliability=signal.reliability,
+            reasoning_context=signal.reasoning_context,
+            escalation_contribution=signal.escalation_contribution,
+            source_module=signal.source_module,
+            analyst_details=signal.analyst_details,
             value=signal.value,
         )
 

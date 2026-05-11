@@ -71,7 +71,12 @@ class AnalysisService:
             extraction.metadata["interaction_runtime_note"] = interaction_result.runtime_note
         self._append_interaction_signals(extraction.dom_signals, interaction_result.signals)
 
-        self._append_url_model_signals(extraction.model_signals, url_result)
+        calibrated_url_score = self._calibrate_url_model_score(
+            raw_score=url_result.score,
+            extraction=extraction,
+            model_loaded=url_result.model_loaded,
+        )
+        self._append_url_model_signals(extraction.model_signals, url_result, calibrated_url_score)
         if text_result:
             self._append_text_model_signals(extraction.model_signals, text_result)
         self._append_issue_signals(extraction.model_signals, url_result.issues, source="model", category="url-model")
@@ -91,7 +96,7 @@ class AnalysisService:
 
         reasoning = self.reasoning.reason(
             extraction,
-            url_model_score=url_result.score,
+            url_model_score=calibrated_url_score,
             url_model_confidence=url_result.confidence,
             nlp_score=text_result.score if text_result else 0,
             nlp_confidence=text_result.confidence if text_result else 0.0,
@@ -132,8 +137,15 @@ class AnalysisService:
             self._append_interaction_signals(extraction.dom_signals, interaction_result.signals)
 
         if url_result:
-            self._append_url_model_signals(extraction.model_signals, url_result)
+            calibrated_url_score = self._calibrate_url_model_score(
+                raw_score=url_result.score,
+                extraction=extraction,
+                model_loaded=url_result.model_loaded,
+            )
+            self._append_url_model_signals(extraction.model_signals, url_result, calibrated_url_score)
             self._append_issue_signals(extraction.model_signals, url_result.issues, source="model", category="url-model")
+        else:
+            calibrated_url_score = 0
         self._append_text_model_signals(extraction.model_signals, text_result)
         self._append_issue_signals(
             extraction.content_signals,
@@ -150,7 +162,7 @@ class AnalysisService:
 
         reasoning = self.reasoning.reason(
             extraction,
-            url_model_score=url_result.score if url_result else 0,
+            url_model_score=calibrated_url_score,
             url_model_confidence=url_result.confidence if url_result else 0.0,
             nlp_score=text_result.score,
             nlp_confidence=text_result.confidence,
@@ -172,12 +184,17 @@ class AnalysisService:
             intel_notes=intel_result.notes,
         )
 
-    def _append_url_model_signals(self, target: list[SignalEvidence], url_result: UrlAnalysisResult) -> None:
-        if url_result.score >= 80:
+    def _append_url_model_signals(
+        self,
+        target: list[SignalEvidence],
+        url_result: UrlAnalysisResult,
+        calibrated_score: int,
+    ) -> None:
+        if calibrated_score >= 80:
             severity = "critical"
-        elif url_result.score >= 60:
+        elif calibrated_score >= 60:
             severity = "high"
-        elif url_result.score >= 40:
+        elif calibrated_score >= 40:
             severity = "medium"
         else:
             severity = "low"
@@ -187,15 +204,23 @@ class AnalysisService:
                 code="model-url-phishing-probability",
                 title="URL phishing model probability",
                 description=(
-                    f"Pretrained URL model produced score {url_result.score}/100 with confidence "
-                    f"{round(url_result.confidence, 2)}."
+                    f"Pretrained URL model produced raw score {url_result.score}/100 and "
+                    f"calibrated score {calibrated_score}/100 with confidence {round(url_result.confidence, 2)}."
                 ),
                 severity=severity,
                 source="model",
                 category="url-model",
-                score_impact=max(4, int(url_result.score * 0.28)),
+                score_impact=max(2, int(calibrated_score * 0.24)),
                 confidence=max(0.2, min(0.99, url_result.confidence)),
-                value={"score": url_result.score, "model_loaded": url_result.model_loaded},
+                reliability=max(0.3, min(0.98, url_result.confidence)),
+                reasoning_context="Local URL classifier probability transformed into model evidence signal.",
+                escalation_contribution=max(2, int(calibrated_score * 0.24)),
+                source_module="url_analyzer",
+                value={
+                    "raw_score": url_result.score,
+                    "calibrated_score": calibrated_score,
+                    "model_loaded": url_result.model_loaded,
+                },
             )
         )
 
@@ -212,6 +237,10 @@ class AnalysisService:
                     category="runtime",
                     score_impact=9,
                     confidence=0.74,
+                    reliability=0.6,
+                    reasoning_context="URL model unavailable; runtime fallback degraded model certainty.",
+                    escalation_contribution=6,
+                    source_module="url_analyzer",
                     value=url_result.model_issue,
                 )
             )
@@ -240,6 +269,10 @@ class AnalysisService:
                 category="nlp-model",
                 score_impact=max(3, int(text_result.score * 0.24)),
                 confidence=max(0.2, min(0.99, text_result.confidence)),
+                reliability=max(0.3, min(0.95, text_result.confidence)),
+                reasoning_context="Local NLP inference used for social-engineering support scoring.",
+                escalation_contribution=max(3, int(text_result.score * 0.24)),
+                source_module="text_analyzer",
                 value={
                     "model_name": text_result.model_name,
                     "runtime_mode": text_result.runtime_mode,
@@ -259,6 +292,10 @@ class AnalysisService:
                     category="runtime",
                     score_impact=8,
                     confidence=0.7,
+                    reliability=0.58,
+                    reasoning_context="NLP inference warning reduced model-assisted narrative certainty.",
+                    escalation_contribution=4,
+                    source_module="text_analyzer",
                     value={"runtime_mode": text_result.runtime_mode},
                 )
             )
@@ -285,6 +322,10 @@ class AnalysisService:
                     category=finding.provider,
                     score_impact=max(4, int(finding.score * 0.25)),
                     confidence=max(0.2, min(0.99, finding.confidence)),
+                    reliability=max(0.3, min(0.98, finding.confidence)),
+                    reasoning_context="External provider verdict correlated with local investigation evidence.",
+                    escalation_contribution=max(4, int(finding.score * 0.25)),
+                    source_module="threat_intel_service",
                     value={"provider_score": finding.score, "verdict": finding.verdict},
                 )
             )
@@ -296,6 +337,10 @@ class AnalysisService:
         for signal in signals:
             if signal.code in existing_codes:
                 continue
+            if signal.escalation_contribution <= 0:
+                signal.escalation_contribution = signal.score_impact
+            if not signal.source_module:
+                signal.source_module = "interaction_simulator"
             target.append(signal)
             existing_codes.add(signal.code)
 
@@ -324,6 +369,16 @@ class AnalysisService:
                         "info": 2,
                     }.get(issue.severity, 8),
                     confidence=0.72,
+                    reliability=0.68,
+                    reasoning_context=f"Converted detection issue from {source} module into normalized signal evidence.",
+                    escalation_contribution={
+                        "critical": 28,
+                        "high": 21,
+                        "medium": 13,
+                        "low": 6,
+                        "info": 2,
+                    }.get(issue.severity, 8),
+                    source_module=source,
                 )
             )
 
@@ -341,3 +396,70 @@ class AnalysisService:
         if not valid:
             return None
         return " | ".join(valid)
+
+    def _calibrate_url_model_score(
+        self,
+        *,
+        raw_score: int,
+        extraction,
+        model_loaded: bool,
+    ) -> int:
+        score = raw_score
+        normalized_url = extraction.normalized_url.lower()
+        trust_profile = extraction.metadata.get("domain_trust", {}) if extraction.metadata else {}
+
+        trusted_oauth_context = any(
+            token in normalized_url
+            for token in (
+                "accounts.google.com",
+                "login.microsoftonline.com",
+                "appleid.apple.com",
+                "okta.com",
+                "auth0.com",
+            )
+        )
+        if trusted_oauth_context:
+            score = min(score, 45)
+        if trust_profile.get("is_trusted"):
+            score = min(score, 35)
+
+        high_url_signals = sum(1 for signal in extraction.url_signals if signal.severity in {"high", "critical"})
+        high_dom_signals = sum(1 for signal in extraction.dom_signals if signal.severity in {"high", "critical"})
+        high_content_signals = sum(
+            1 for signal in extraction.content_signals if signal.severity in {"high", "critical"}
+        )
+        corroboration = high_url_signals + high_dom_signals + high_content_signals
+
+        if corroboration == 0:
+            score = int(round(score * 0.45))
+        elif corroboration == 1:
+            score = int(round(score * 0.68))
+        elif corroboration == 2:
+            score = int(round(score * 0.9))
+
+        behavioral_indicator_detected = any(
+            signal.code
+            in {
+                "dom-external-credential-post",
+                "dom-hidden-password-field",
+                "dom-hidden-credential-form",
+                "dom-credential-form-blank-action",
+                "dom-downgraded-form-post",
+                "dom-meta-refresh-redirect",
+                "dom-scripted-redirect-logic",
+                "interaction-triggered-redirect",
+                "interaction-hidden-credential-reveal",
+                "interaction-dynamic-form-injection",
+                "interaction-overlay-injection",
+                "content-credential-request",
+                "content-scare-tactics",
+            }
+            for signal in extraction.all_signals
+        )
+        if not behavioral_indicator_detected:
+            score = min(score, 20)
+
+        if not model_loaded:
+            score = int(round(score * 0.82))
+
+        return max(0, min(100, score))

@@ -31,6 +31,11 @@ class SignalEvidence:
     category: str
     score_impact: int
     confidence: float
+    reliability: float = 0.7
+    reasoning_context: str | None = None
+    escalation_contribution: int = 0
+    source_module: str | None = None
+    analyst_details: dict[str, Any] = field(default_factory=dict)
     value: Any | None = None
 
 
@@ -129,3 +134,5 @@ class ReasoningResult:
     timeline: list[TimelineEvent] = field(default_factory=list)
     attack_patterns: list[AttackPatternLabel] = field(default_factory=list)
     confidence_progression: list[dict[str, Any]] = field(default_factory=list)
+    calibration_notes: list[str] = field(default_factory=list)
+    risk_cap: int | None = None

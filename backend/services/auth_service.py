@@ -1,24 +1,29 @@
 from datetime import datetime, timedelta, timezone
 
+import bcrypt
 import jwt
-from passlib.context import CryptContext
 
 from backend.config import get_settings
 
 settings = get_settings()
-pwd_context = CryptContext(schemes=['bcrypt'], deprecated='auto')
 
 
 class AuthService:
+    @staticmethod
+    def _normalize_password(password: str) -> bytes:
+        # bcrypt accepts at most 72 bytes, so we truncate at the byte level.
+        return password.encode("utf-8")[:72]
+
     def hash_password(self, password: str) -> str:
-        # bcrypt has a 72-byte limit; truncate if necessary
-        truncated = password[:72]
-        return pwd_context.hash(truncated)
+        normalized = self._normalize_password(password)
+        return bcrypt.hashpw(normalized, bcrypt.gensalt()).decode("utf-8")
 
     def verify_password(self, plain_password: str, hashed_password: str) -> bool:
-        # truncate to match hash_password behavior
-        truncated = plain_password[:72]
-        return pwd_context.verify(truncated, hashed_password)
+        try:
+            normalized = self._normalize_password(plain_password)
+            return bcrypt.checkpw(normalized, hashed_password.encode("utf-8"))
+        except (ValueError, TypeError):
+            return False
 
     def create_access_token(self, subject: str) -> str:
         expire = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)

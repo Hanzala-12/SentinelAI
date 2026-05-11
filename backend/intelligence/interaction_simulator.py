@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from urllib.parse import urlparse
 
 from backend.intelligence.models import InteractionReplayEvent, SignalEvidence
 
@@ -27,6 +29,32 @@ SUSPICIOUS_CLICK_SELECTORS = [
     "a[href*='login']",
     "a[href*='secure']",
 ]
+BENIGN_CLICK_PATTERNS = (
+    "accept all",
+    "cookie",
+    "newsletter",
+    "subscribe",
+    "learn more",
+    "privacy",
+    "terms",
+    "continue with google",
+    "continue with microsoft",
+    "sign in with google",
+    "sign in with microsoft",
+    "continue with apple",
+)
+SUSPICIOUS_CLICK_PATTERNS = (
+    "verify",
+    "unlock",
+    "reactivate",
+    "security",
+    "confirm",
+    "continue",
+    "suspend",
+    "password",
+    "login",
+    "sign in",
+)
 
 
 @dataclass(slots=True)
@@ -62,26 +90,14 @@ class InteractionSimulationEngine:
         except Exception as exc:
             return InteractionSimulationResult(
                 runtime_note=f"playwright-unavailable: {exc}",
-                signals=[
-                    self._signal(
-                        code="interaction-runtime-unavailable",
-                        title="Interaction simulation runtime unavailable",
-                        description=(
-                            "Dynamic interaction probing was skipped because Playwright runtime "
-                            "dependencies are not available."
-                        ),
-                        severity="low",
-                        category="runtime",
-                        score_impact=4,
-                        confidence=0.66,
-                    )
-                ],
+                signals=[],
             )
 
         events: list[InteractionReplayEvent] = []
         signals: list[SignalEvidence] = []
         metadata: dict[str, Any] = {}
         popup_count = 0
+        suppressed_indicators: list[dict[str, Any]] = []
         interaction_start = datetime.now(timezone.utc)
 
         def page_snapshot(page) -> dict[str, int]:
@@ -187,7 +203,7 @@ class InteractionSimulationEngine:
                     )
 
                 baseline = page_snapshot(page)
-                unique_targets: list[str] = []
+                raw_candidates: list[dict[str, Any]] = []
                 for selector in SUSPICIOUS_CLICK_SELECTORS:
                     try:
                         count = page.locator(selector).count()
@@ -195,9 +211,38 @@ class InteractionSimulationEngine:
                         continue
                     if count <= 0:
                         continue
-                    unique_targets.append(selector)
-                    if len(unique_targets) >= self.max_actions:
-                        break
+                    for idx in range(min(2, count)):
+                        locator = page.locator(selector).nth(idx)
+                        text = ""
+                        href = ""
+                        html = ""
+                        try:
+                            text = (locator.inner_text(timeout=800) or "").strip()
+                        except Exception:
+                            text = ""
+                        try:
+                            href = (locator.get_attribute("href", timeout=800) or "").strip()
+                        except Exception:
+                            href = ""
+                        try:
+                            html = (locator.evaluate("el => el.outerHTML") or "")[:400]
+                        except Exception:
+                            html = ""
+                        score = self._target_suspicion_score(text=text, href=href, selector=selector)
+                        if score <= 0:
+                            continue
+                        raw_candidates.append(
+                            {
+                                "selector": selector,
+                                "index": idx,
+                                "score": score,
+                                "text": text[:120],
+                                "href": href[:200],
+                                "html_snippet": html,
+                            }
+                        )
+                raw_candidates.sort(key=lambda item: item["score"], reverse=True)
+                unique_targets = raw_candidates[: self.max_actions]
 
                 if not unique_targets:
                     context.close()
@@ -210,25 +255,29 @@ class InteractionSimulationEngine:
                             "popup_count": popup_count,
                             "dialog_count": dialog_count,
                             "baseline_snapshot": baseline,
+                            "calibration_note": "No high-suspicion interaction targets identified.",
                         },
                     )
 
                 current_confidence = 0.35
-                for index, selector in enumerate(unique_targets, start=1):
+                for index, target in enumerate(unique_targets, start=1):
+                    selector = str(target["selector"])
+                    target_index = int(target["index"])
                     step_time = interaction_start + timedelta(seconds=index)
                     url_before = page.url
                     before = page_snapshot(page)
                     action_name = "click"
                     try:
-                        page.locator(selector).first.click(force=True, timeout=2000)
+                        page.locator(selector).nth(target_index).click(force=True, timeout=2000)
                         page.wait_for_timeout(900)
                     except Exception:
                         action_name = "click-attempt"
 
                     after = page_snapshot(page)
                     url_after = page.url
-                    redirect_triggered = url_before != url_after
+                    redirect_triggered = self._is_suspicious_redirect(url_before=url_before, url_after=url_after)
                     mutations = self._mutation_diff(before, after)
+                    significance = self._mutation_significance(mutations, redirect_triggered)
                     new_indicator_codes: list[str] = []
 
                     if redirect_triggered:
@@ -243,23 +292,43 @@ class InteractionSimulationEngine:
                         new_indicator_codes.append("interaction-iframe-insertion")
                     if dialog_count > 0 or popup_count > 0:
                         new_indicator_codes.append("interaction-popup-scare-flow")
+                    if significance < 4 and "interaction-popup-scare-flow" in new_indicator_codes:
+                        new_indicator_codes.remove("interaction-popup-scare-flow")
+                        suppressed_indicators.append(
+                            {
+                                "code": "interaction-popup-scare-flow",
+                                "reason": (
+                                    "Popup/dialog activity downgraded because mutation significance "
+                                    "and phishing corroboration were low."
+                                ),
+                                "selector": selector,
+                                "target_index": target_index,
+                                "significance": significance,
+                            }
+                        )
 
                     if new_indicator_codes:
-                        current_confidence = min(0.97, current_confidence + 0.13)
+                        current_confidence = min(0.97, current_confidence + 0.1 + min(0.06, significance * 0.01))
                     else:
-                        current_confidence = min(0.97, current_confidence + 0.04)
+                        current_confidence = min(0.97, current_confidence + 0.02)
 
                     events.append(
                         InteractionReplayEvent(
                             step_id=f"sim-{index:03d}",
                             timestamp=step_time.isoformat(),
                             action=action_name,
-                            target=selector,
+                            target=f"{selector}#{target_index}",
                             url_before=url_before,
                             url_after=url_after,
                             redirect_triggered=redirect_triggered,
                             new_indicator_codes=new_indicator_codes,
-                            dom_mutations=mutations,
+                            dom_mutations={
+                                **mutations,
+                                "significance_score": significance,
+                                "target_score": int(target["score"]),
+                                "target_text": target["text"],
+                                "target_href": target["href"],
+                            },
                             confidence_after=round(current_confidence, 2),
                         )
                     )
@@ -276,8 +345,20 @@ class InteractionSimulationEngine:
                                     ),
                                     severity="high",
                                     category="behavioral-flow",
-                                    score_impact=20,
+                                    score_impact=18 if significance < 7 else 22,
                                     confidence=0.88,
+                                    reasoning_context=(
+                                        "Redirect fired only after user-action simulation and was evaluated as "
+                                        "cross-origin or suspicious-path navigation."
+                                    ),
+                                    analyst_details={
+                                        "selector": selector,
+                                        "target_index": target_index,
+                                        "url_before": url_before,
+                                        "url_after": url_after,
+                                        "mutation_significance": significance,
+                                        "target_html_snippet": target.get("html_snippet"),
+                                    },
                                 )
                             )
                         elif code == "interaction-hidden-credential-reveal":
@@ -291,8 +372,18 @@ class InteractionSimulationEngine:
                                     ),
                                     severity="critical",
                                     category="credential-harvest",
-                                    score_impact=26,
-                                    confidence=0.93,
+                                    score_impact=24 if significance < 7 else 27,
+                                    confidence=0.9 if significance < 7 else 0.94,
+                                    reasoning_context=(
+                                        "Credential fields became visible after simulated click, indicating "
+                                        "staged phishing reveal flow."
+                                    ),
+                                    analyst_details={
+                                        "selector": selector,
+                                        "target_index": target_index,
+                                        "mutations": mutations,
+                                        "target_html_snippet": target.get("html_snippet"),
+                                    },
                                 )
                             )
                         elif code == "interaction-dynamic-form-injection":
@@ -306,8 +397,16 @@ class InteractionSimulationEngine:
                                     ),
                                     severity="high",
                                     category="credential-harvest",
-                                    score_impact=22,
-                                    confidence=0.89,
+                                    score_impact=19 if significance < 7 else 23,
+                                    confidence=0.84 if significance < 7 else 0.9,
+                                    reasoning_context=(
+                                        "Post-click increase in form count indicates dynamic injection behavior."
+                                    ),
+                                    analyst_details={
+                                        "selector": selector,
+                                        "target_index": target_index,
+                                        "mutations": mutations,
+                                    },
                                 )
                             )
                         elif code == "interaction-overlay-injection":
@@ -321,8 +420,16 @@ class InteractionSimulationEngine:
                                     ),
                                     severity="high",
                                     category="social-engineering",
-                                    score_impact=21,
-                                    confidence=0.86,
+                                    score_impact=17 if significance < 7 else 21,
+                                    confidence=0.8 if significance < 7 else 0.87,
+                                    reasoning_context=(
+                                        "Overlay/modal surfaced after interaction with high z-index profile."
+                                    ),
+                                    analyst_details={
+                                        "selector": selector,
+                                        "target_index": target_index,
+                                        "mutations": mutations,
+                                    },
                                 )
                             )
                         elif code == "interaction-iframe-insertion":
@@ -336,8 +443,14 @@ class InteractionSimulationEngine:
                                     ),
                                     severity="medium",
                                     category="delivery",
-                                    score_impact=15,
-                                    confidence=0.79,
+                                    score_impact=12 if significance < 7 else 16,
+                                    confidence=0.73 if significance < 7 else 0.81,
+                                    reasoning_context="New iframe nodes appeared during interaction replay.",
+                                    analyst_details={
+                                        "selector": selector,
+                                        "target_index": target_index,
+                                        "mutations": mutations,
+                                    },
                                 )
                             )
                         elif code == "interaction-popup-scare-flow":
@@ -351,8 +464,19 @@ class InteractionSimulationEngine:
                                     ),
                                     severity="medium",
                                     category="social-engineering",
-                                    score_impact=14,
-                                    confidence=0.76,
+                                    score_impact=8 if significance < 7 else 14,
+                                    confidence=0.62 if significance < 7 else 0.78,
+                                    reasoning_context=(
+                                        "Popup/dialog sequence triggered by interaction and correlated with "
+                                        "mutation significance."
+                                    ),
+                                    analyst_details={
+                                        "selector": selector,
+                                        "target_index": target_index,
+                                        "popup_count": popup_count,
+                                        "dialog_count": dialog_count,
+                                        "mutations": mutations,
+                                    },
                                 )
                             )
 
@@ -363,6 +487,8 @@ class InteractionSimulationEngine:
                     "baseline_snapshot": baseline,
                     "final_url": page.url,
                     "redirect_observed": any(event.redirect_triggered for event in events),
+                    "target_candidates": unique_targets,
+                    "suppressed_interaction_indicators": suppressed_indicators,
                 }
                 context.close()
                 browser.close()
@@ -370,17 +496,7 @@ class InteractionSimulationEngine:
             logger.warning("Interaction simulation failed: %s", exc)
             return InteractionSimulationResult(
                 runtime_note=f"interaction-runtime-failed: {exc}",
-                signals=[
-                    self._signal(
-                        code="interaction-runtime-failed",
-                        title="Interaction simulation runtime failure",
-                        description="Dynamic probing encountered a runtime failure and was partially skipped.",
-                        severity="low",
-                        category="runtime",
-                        score_impact=4,
-                        confidence=0.6,
-                    )
-                ],
+                signals=[],
             )
 
         signals = self._dedupe_signals(signals)
@@ -400,6 +516,52 @@ class InteractionSimulationEngine:
             "urgency_text_hits_increase": max(0, delta("urgencyTextHits")),
         }
 
+    def _mutation_significance(self, mutations: dict[str, int], redirect_triggered: bool) -> int:
+        score = 0
+        score += mutations.get("visible_credential_fields_increase", 0) * 4
+        score += mutations.get("forms_increase", 0) * 3
+        score += mutations.get("overlays_increase", 0) * 3
+        score += mutations.get("iframes_increase", 0) * 2
+        score += mutations.get("urgency_text_hits_increase", 0) * 1
+        if redirect_triggered:
+            score += 4
+        return min(25, max(0, score))
+
+    def _target_suspicion_score(self, *, text: str, href: str, selector: str) -> int:
+        normalized_text = text.lower()
+        normalized_href = href.lower()
+        score = 0
+        if any(token in normalized_text for token in SUSPICIOUS_CLICK_PATTERNS):
+            score += 6
+        if any(token in normalized_href for token in ("verify", "secure", "login", "auth", "session")):
+            score += 4
+        if "button:has-text" in selector:
+            score += 1
+        if any(token in normalized_text for token in BENIGN_CLICK_PATTERNS):
+            score -= 8
+        if any(token in normalized_href for token in ("privacy", "terms", "cookie", "help", "support")):
+            score -= 3
+        return score
+
+    def _is_suspicious_redirect(self, *, url_before: str, url_after: str) -> bool:
+        if url_before == url_after:
+            return False
+        before = urlparse(url_before)
+        after = urlparse(url_after)
+        before_host = (before.hostname or "").lower()
+        after_host = (after.hostname or "").lower()
+        if not before_host or not after_host:
+            return True
+        if before_host != after_host:
+            if any(
+                token in after_host
+                for token in ("google.com", "microsoftonline.com", "apple.com", "okta.com", "auth0.com")
+            ):
+                return False
+            return True
+        suspicious_path = re.search(r"verify|secure|session|login|account|update", after.path.lower()) is not None
+        return suspicious_path and before.path != after.path
+
     def _signal(
         self,
         *,
@@ -410,6 +572,8 @@ class InteractionSimulationEngine:
         category: str,
         score_impact: int,
         confidence: float,
+        reasoning_context: str | None = None,
+        analyst_details: dict[str, Any] | None = None,
     ) -> SignalEvidence:
         return SignalEvidence(
             code=code,
@@ -420,6 +584,11 @@ class InteractionSimulationEngine:
             category=category,
             score_impact=score_impact,
             confidence=confidence,
+            reliability=max(0.2, min(0.98, confidence - 0.05)),
+            reasoning_context=reasoning_context,
+            escalation_contribution=score_impact,
+            source_module="interaction_simulator",
+            analyst_details=analyst_details or {},
             value=None,
         )
 

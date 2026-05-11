@@ -1,0 +1,488 @@
+{
+  "summary": {
+    "run_utc": "2026-05-11T09:34:49.216138+00:00",
+    "sample_count": 14,
+    "confusion_matrix": {
+      "tp": 4,
+      "tn": 10,
+      "fp": 0,
+      "fn": 0
+    },
+    "expectation_pass_rate": 0.857,
+    "average_risk_by_label": {
+      "malicious": 28.75,
+      "benign": 5.5,
+      "ambiguous": 8.0
+    },
+    "average_confidence_by_label": {
+      "malicious": 0.755,
+      "benign": 0.522,
+      "ambiguous": 0.575
+    },
+    "top_benign_high_severity_signals": [],
+    "top_noisy_low_impact_signals": [
+      [
+        "model-url-phishing-probability",
+        10
+      ],
+      [
+        "url-medium-entropy-host",
+        1
+      ],
+      [
+        "model-text-runtime-warning",
+        1
+      ],
+      [
+        "model-text-scam-likelihood",
+        1
+      ]
+    ],
+    "pattern_match_coverage": {
+      "credential-harvesting": 1,
+      "redirect-based-phishing": 1,
+      "social-engineering-scam": 1
+    },
+    "threshold_metrics": [
+      {
+        "threshold": 25,
+        "tp": 4,
+        "fp": 0,
+        "tn": 10,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      {
+        "threshold": 35,
+        "tp": 0,
+        "fp": 0,
+        "tn": 10,
+        "fn": 4,
+        "precision": 0.0,
+        "recall": 0.0
+      },
+      {
+        "threshold": 45,
+        "tp": 0,
+        "fp": 0,
+        "tn": 10,
+        "fn": 4,
+        "precision": 0.0,
+        "recall": 0.0
+      },
+      {
+        "threshold": 55,
+        "tp": 0,
+        "fp": 0,
+        "tn": 10,
+        "fn": 4,
+        "precision": 0.0,
+        "recall": 0.0
+      },
+      {
+        "threshold": 65,
+        "tp": 0,
+        "fp": 0,
+        "tn": 10,
+        "fn": 4,
+        "precision": 0.0,
+        "recall": 0.0
+      },
+      {
+        "threshold": 75,
+        "tp": 0,
+        "fp": 0,
+        "tn": 10,
+        "fn": 4,
+        "precision": 0.0,
+        "recall": 0.0
+      }
+    ],
+    "interaction_relevance": {
+      "malicious_with_interaction_findings": 0,
+      "benign_with_interaction_findings": 0
+    },
+    "escalation_quality": {
+      "malicious_avg_class_rank": 1.0,
+      "benign_avg_class_rank": 0.0,
+      "ambiguous_avg_class_rank": 0.0
+    }
+  },
+  "rows": [
+    {
+      "id": "phish_credential_external_post",
+      "label": "malicious",
+      "category": "credential_harvest",
+      "risk_score": 32,
+      "classification": "Suspicious",
+      "confidence": 0.8,
+      "expected_patterns": [
+        "credential-harvesting",
+        "fake-account-verification",
+        "social-engineering-scam"
+      ],
+      "predicted_patterns": [
+        "credential-harvesting"
+      ],
+      "matched_patterns": [
+        "credential-harvesting"
+      ],
+      "classification_expectation_met": false,
+      "evidence_codes": [
+        "dom-external-credential-post",
+        "dom-hidden-credential-form",
+        "model-url-phishing-probability",
+        "content-urgency-pressure",
+        "url-medium-entropy-host",
+        "nlp-urgency_pressure",
+        "hyphenated-host",
+        "hyphenated-host",
+        "model-text-runtime-warning",
+        "model-text-scam-likelihood"
+      ],
+      "suppressed_detections": [],
+      "interaction_event_count": 0,
+      "narrative_coercion_score": 27
+    },
+    {
+      "id": "phish_redirect_chain_overlay",
+      "label": "malicious",
+      "category": "redirect_flow",
+      "risk_score": 31,
+      "classification": "Suspicious",
+      "confidence": 0.85,
+      "expected_patterns": [
+        "redirect-based-phishing",
+        "fake-security-warning"
+      ],
+      "predicted_patterns": [
+        "redirect-based-phishing",
+        "social-engineering-scam"
+      ],
+      "matched_patterns": [
+        "redirect-based-phishing"
+      ],
+      "classification_expectation_met": false,
+      "evidence_codes": [
+        "content-scare-tactics",
+        "nlp-account_suspension",
+        "model-url-phishing-probability",
+        "dom-fake-modal-injection",
+        "dom-meta-refresh-redirect",
+        "content-urgency-pressure",
+        "dom-scripted-redirect-logic",
+        "url-medium-entropy-host",
+        "nlp-urgency_pressure",
+        "hyphenated-host",
+        "hyphenated-host",
+        "model-text-runtime-warning",
+        "model-text-scam-likelihood"
+      ],
+      "suppressed_detections": [],
+      "interaction_event_count": 0,
+      "narrative_coercion_score": 55
+    },
+    {
+      "id": "phish_notification_lure",
+      "label": "malicious",
+      "category": "notification_scam",
+      "risk_score": 26,
+      "classification": "Suspicious",
+      "confidence": 0.65,
+      "expected_patterns": [
+        "notification-abuse-scam",
+        "social-engineering-scam"
+      ],
+      "predicted_patterns": [],
+      "matched_patterns": [],
+      "classification_expectation_met": true,
+      "evidence_codes": [
+        "url-suspicious-tld",
+        "dom-notification-abuse",
+        "dom-deceptive-popup-pattern",
+        "url-medium-entropy-host",
+        "hyphenated-host",
+        "known-risk-signals",
+        "model-url-phishing-probability"
+      ],
+      "suppressed_detections": [],
+      "interaction_event_count": 0,
+      "narrative_coercion_score": 0
+    },
+    {
+      "id": "scam_reward_airdrop",
+      "label": "malicious",
+      "category": "reward_bait",
+      "risk_score": 26,
+      "classification": "Suspicious",
+      "confidence": 0.72,
+      "expected_patterns": [
+        "social-engineering-scam"
+      ],
+      "predicted_patterns": [
+        "social-engineering-scam"
+      ],
+      "matched_patterns": [
+        "social-engineering-scam"
+      ],
+      "classification_expectation_met": true,
+      "evidence_codes": [
+        "content-fake-reward",
+        "url-suspicious-tld",
+        "url-medium-entropy-host",
+        "nlp-urgency_pressure",
+        "nlp-reward_lure",
+        "hyphenated-host",
+        "known-risk-signals",
+        "model-text-runtime-warning",
+        "model-url-phishing-probability",
+        "content-urgency-pressure",
+        "model-text-scam-likelihood"
+      ],
+      "suppressed_detections": [
+        {
+          "code": "content-urgency-pressure",
+          "reason": "Downgraded low-context social-engineering cue without corroborating technical phishing indicators.",
+          "original": {
+            "severity": "medium",
+            "score_impact": 12,
+            "confidence": 0.7100000000000001
+          },
+          "updated": {
+            "severity": "low",
+            "score_impact": 9,
+            "confidence": 0.61
+          }
+        }
+      ],
+      "interaction_event_count": 0,
+      "narrative_coercion_score": 44
+    },
+    {
+      "id": "benign_google_oauth",
+      "label": "benign",
+      "category": "oauth_flow",
+      "risk_score": 5,
+      "classification": "Safe",
+      "confidence": 0.55,
+      "expected_patterns": [],
+      "predicted_patterns": [],
+      "matched_patterns": [],
+      "classification_expectation_met": true,
+      "evidence_codes": [
+        "mailto",
+        "redirect-chain",
+        "model-url-phishing-probability"
+      ],
+      "suppressed_detections": [],
+      "interaction_event_count": 0,
+      "narrative_coercion_score": 0
+    },
+    {
+      "id": "benign_microsoft_oauth",
+      "label": "benign",
+      "category": "oauth_flow",
+      "risk_score": 5,
+      "classification": "Safe",
+      "confidence": 0.52,
+      "expected_patterns": [],
+      "predicted_patterns": [],
+      "matched_patterns": [],
+      "classification_expectation_met": true,
+      "evidence_codes": [
+        "mailto",
+        "model-url-phishing-probability"
+      ],
+      "suppressed_detections": [],
+      "interaction_event_count": 0,
+      "narrative_coercion_score": 0
+    },
+    {
+      "id": "benign_corporate_mfa",
+      "label": "benign",
+      "category": "mfa_prompt",
+      "risk_score": 6,
+      "classification": "Safe",
+      "confidence": 0.55,
+      "expected_patterns": [],
+      "predicted_patterns": [],
+      "matched_patterns": [],
+      "classification_expectation_met": true,
+      "evidence_codes": [
+        "url-medium-entropy-host",
+        "hyphenated-host",
+        "model-url-phishing-probability"
+      ],
+      "suppressed_detections": [],
+      "interaction_event_count": 0,
+      "narrative_coercion_score": 0
+    },
+    {
+      "id": "benign_newsletter_popup",
+      "label": "benign",
+      "category": "newsletter_popup",
+      "risk_score": 6,
+      "classification": "Safe",
+      "confidence": 0.52,
+      "expected_patterns": [],
+      "predicted_patterns": [],
+      "matched_patterns": [],
+      "classification_expectation_met": true,
+      "evidence_codes": [
+        "dom-fake-modal-injection",
+        "model-url-phishing-probability"
+      ],
+      "suppressed_detections": [],
+      "interaction_event_count": 0,
+      "narrative_coercion_score": 0
+    },
+    {
+      "id": "benign_banking_login",
+      "label": "benign",
+      "category": "bank_login",
+      "risk_score": 6,
+      "classification": "Safe",
+      "confidence": 0.52,
+      "expected_patterns": [],
+      "predicted_patterns": [],
+      "matched_patterns": [],
+      "classification_expectation_met": true,
+      "evidence_codes": [
+        "url-medium-entropy-host",
+        "model-url-phishing-probability"
+      ],
+      "suppressed_detections": [],
+      "interaction_event_count": 0,
+      "narrative_coercion_score": 0
+    },
+    {
+      "id": "benign_saas_auth",
+      "label": "benign",
+      "category": "saas_login",
+      "risk_score": 6,
+      "classification": "Safe",
+      "confidence": 0.5,
+      "expected_patterns": [],
+      "predicted_patterns": [],
+      "matched_patterns": [],
+      "classification_expectation_met": true,
+      "evidence_codes": [
+        "model-url-phishing-probability"
+      ],
+      "suppressed_detections": [],
+      "interaction_event_count": 0,
+      "narrative_coercion_score": 0
+    },
+    {
+      "id": "benign_government_portal_pk",
+      "label": "benign",
+      "category": "government_portal",
+      "risk_score": 5,
+      "classification": "Safe",
+      "confidence": 0.5,
+      "expected_patterns": [],
+      "predicted_patterns": [],
+      "matched_patterns": [],
+      "classification_expectation_met": true,
+      "evidence_codes": [
+        "model-url-phishing-probability"
+      ],
+      "suppressed_detections": [],
+      "interaction_event_count": 0,
+      "narrative_coercion_score": 0
+    },
+    {
+      "id": "benign_university_portal",
+      "label": "benign",
+      "category": "university_portal",
+      "risk_score": 5,
+      "classification": "Safe",
+      "confidence": 0.52,
+      "expected_patterns": [],
+      "predicted_patterns": [],
+      "matched_patterns": [],
+      "classification_expectation_met": true,
+      "evidence_codes": [
+        "model-url-phishing-probability",
+        "url-medium-entropy-host"
+      ],
+      "suppressed_detections": [
+        {
+          "code": "url-medium-entropy-host",
+          "reason": "Weak contextual signal suppressed in trusted-domain context. No direct phishing behavior corroboration detected.",
+          "original": {
+            "severity": "medium",
+            "score_impact": 11,
+            "confidence": 0.72
+          },
+          "updated": {
+            "severity": "low",
+            "score_impact": 5,
+            "confidence": 0.58
+          }
+        }
+      ],
+      "interaction_event_count": 0,
+      "narrative_coercion_score": 0
+    },
+    {
+      "id": "ambiguous_marketing_urgency",
+      "label": "ambiguous",
+      "category": "marketing_urgency",
+      "risk_score": 10,
+      "classification": "Safe",
+      "confidence": 0.65,
+      "expected_patterns": [],
+      "predicted_patterns": [
+        "social-engineering-scam"
+      ],
+      "matched_patterns": [],
+      "classification_expectation_met": true,
+      "evidence_codes": [
+        "dom-urgency-banner-language",
+        "nlp-urgency_pressure",
+        "model-text-runtime-warning",
+        "model-url-phishing-probability",
+        "content-urgency-pressure",
+        "model-text-scam-likelihood"
+      ],
+      "suppressed_detections": [
+        {
+          "code": "content-urgency-pressure",
+          "reason": "Downgraded low-context social-engineering cue without corroborating technical phishing indicators.",
+          "original": {
+            "severity": "medium",
+            "score_impact": 14,
+            "confidence": 0.76
+          },
+          "updated": {
+            "severity": "low",
+            "score_impact": 11,
+            "confidence": 0.66
+          }
+        }
+      ],
+      "interaction_event_count": 0,
+      "narrative_coercion_score": 27
+    },
+    {
+      "id": "ambiguous_account_notice",
+      "label": "ambiguous",
+      "category": "account_notice",
+      "risk_score": 6,
+      "classification": "Safe",
+      "confidence": 0.5,
+      "expected_patterns": [],
+      "predicted_patterns": [],
+      "matched_patterns": [],
+      "classification_expectation_met": true,
+      "evidence_codes": [
+        "model-url-phishing-probability"
+      ],
+      "suppressed_detections": [],
+      "interaction_event_count": 0,
+      "narrative_coercion_score": 0
+    }
+  ]
+}
