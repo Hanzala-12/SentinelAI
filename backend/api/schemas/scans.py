@@ -40,6 +40,44 @@ class EvidenceItem(BaseModel):
     value: Any | None = None
 
 
+class TimelineEvent(BaseModel):
+    event_id: str
+    timestamp: str
+    stage: str
+    source: str
+    title: str
+    detail: str
+    severity: str
+    score_before: int
+    score_after: int
+    score_delta: int
+    confidence_before: float
+    confidence_after: float
+    classification_after: str
+    evidence_codes: list[str]
+
+
+class AttackPattern(BaseModel):
+    code: str
+    title: str
+    description: str
+    confidence: float
+    evidence_codes: list[str]
+
+
+class InteractionReplayEvent(BaseModel):
+    step_id: str
+    timestamp: str
+    action: str
+    target: str
+    url_before: str
+    url_after: str
+    redirect_triggered: bool
+    new_indicator_codes: list[str]
+    dom_mutations: dict[str, Any]
+    confidence_after: float
+
+
 class ThreatReport(BaseModel):
     threat_level: str
     executive_summary: str
@@ -50,6 +88,10 @@ class ThreatReport(BaseModel):
     indicators: dict[str, list[str]]
     signal_counts: dict[str, int]
     evidence: list[EvidenceItem]
+    attack_patterns: list[AttackPattern] = Field(default_factory=list)
+    confidence_progression: list[dict[str, Any]] = Field(default_factory=list)
+    social_engineering_analysis: dict[str, Any] = Field(default_factory=dict)
+    timeline: list[TimelineEvent] = Field(default_factory=list)
     fetch_error: str | None = None
 
 
@@ -62,6 +104,9 @@ class TechnicalFindings(BaseModel):
     content_signals: list[EvidenceItem]
     reputation_signals: list[EvidenceItem]
     model_signals: list[EvidenceItem]
+    interaction_events: list[InteractionReplayEvent] = Field(default_factory=list)
+    attack_patterns: list[AttackPattern] = Field(default_factory=list)
+    social_engineering_analysis: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any]
 
 

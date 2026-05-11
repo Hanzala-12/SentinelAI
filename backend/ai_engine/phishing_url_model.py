@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import ipaddress
+import json
 import logging
 import os
 import re
-import socket
-import tempfile
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
@@ -23,10 +22,6 @@ from backend.api.schemas.scans import DetectedIssue
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL_URL = (
-    "https://github.com/faizann24/Phishing-URL-Detection/raw/master/classifier/phishing.pkl"
-)
-
 SHORT_URL_PATTERNS = re.compile(
     r"bit\.ly|goo\.gl|shorte\.st|go2l\.ink|x\.co|ow\.ly|t\.co|tinyurl|tr\.im|is\.gd|cli\.gs|"
     r"yfrog\.com|migre\.me|ff\.im|tiny\.cc|url4\.eu|twit\.ac|su\.pr|twurl\.nl|snipurl\.com|"
@@ -37,21 +32,6 @@ SHORT_URL_PATTERNS = re.compile(
     re.IGNORECASE,
 )
 
-SHORTCUT_PATTERNS = re.compile(r"alert\(|onmouseover|contextmenu|event\.button ?== ?2|disable right click", re.IGNORECASE)
-SUSPICIOUS_WORDS = (
-    "verify",
-    "account",
-    "bank",
-    "login",
-    "signin",
-    "password",
-    "urgent",
-    "limited time",
-    "gift card",
-    "wallet",
-    "update",
-    "confirm",
-)
 SUSPICIOUS_TLDS = (
     "zip",
     "mov",
@@ -534,19 +514,34 @@ class PhishingUrlFeatureExtractor:
 class PretrainedPhishingUrlModel:
     def __init__(
         self,
-        model_url: str | None = None,
-        cache_dir: str | None = None,
+        model_path: str | None = None,
+        metadata_path: str | None = None,
     ) -> None:
-        self.model_url = model_url or os.getenv("SENTINELAI_URL_MODEL_URL", DEFAULT_MODEL_URL)
-        self.cache_dir = Path(
-            cache_dir or os.getenv("SENTINELAI_MODEL_CACHE_DIR", Path.home() / ".cache" / "sentinelai")
+        repo_root = Path(__file__).resolve().parents[2]
+        default_model_root = Path(__file__).resolve().parents[1] / "models" / "url"
+        configured_model_path = Path(
+            model_path
+            or os.getenv("SENTINELAI_URL_MODEL_PATH")
+            or (default_model_root / "phishing_url_model_v1.pkl")
         )
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
-        self.model_path = self.cache_dir / "phishing_url_model.pkl"
+        configured_metadata_path = Path(
+            metadata_path
+            or os.getenv("SENTINELAI_URL_MODEL_METADATA_PATH")
+            or (default_model_root / "phishing_url_model_v1.json")
+        )
+        self.model_path = (
+            configured_model_path if configured_model_path.is_absolute() else repo_root / configured_model_path
+        )
+        self.metadata_path = (
+            configured_metadata_path
+            if configured_metadata_path.is_absolute()
+            else repo_root / configured_metadata_path
+        )
         self._model = None
         self._model_error: str | None = None
         self._fallback_logged = False
         self._extractor = PhishingUrlFeatureExtractor()
+        self._metadata: dict[str, Any] = {}
 
     @property
     def model_loaded(self) -> bool:
@@ -590,27 +585,14 @@ class PretrainedPhishingUrlModel:
         if self._model_error and not self.model_path.exists():
             raise RuntimeError(self._model_error)
         if not self.model_path.exists():
-            try:
-                self._download_model()
-            except Exception as exc:
-                self._model_error = f"model-download-failed: {exc}"
-                raise
+            self._model_error = f"local-url-model-missing: {self.model_path}"
+            raise RuntimeError(self._model_error)
+        self._metadata = self._load_metadata()
         self._model = joblib.load(self.model_path)
+        self._validate_model(self._model)
         self._model_error = None
         self._fallback_logged = False
         return self._model
-
-    def _download_model(self) -> None:
-        logger.info("Downloading pretrained phishing URL model from %s", self.model_url)
-        with requests.get(self.model_url, stream=True, timeout=30) as response:
-            response.raise_for_status()
-            with tempfile.NamedTemporaryFile(delete=False, dir=self.cache_dir, suffix=".tmp") as temp_file:
-                for chunk in response.iter_content(chunk_size=1024 * 1024):
-                    if chunk:
-                        temp_file.write(chunk)
-                temp_file_path = Path(temp_file.name)
-        temp_file_path.replace(self.model_path)
-        logger.info("Cached phishing URL model at %s", self.model_path)
 
     def _predict_with_model(self, model: Any, features: list[Any]) -> tuple[Any, float, float | None]:
         data = np.array([features], dtype=object)
@@ -663,3 +645,30 @@ class PretrainedPhishingUrlModel:
             if value in (-1, "-1", "Phishy", "BadHREFs", "ErrorSE", "ErrorHREFs", "N/AHREFs"):
                 risky += 1
         return min(0.95, 0.25 + risky * 0.02)
+
+    def _load_metadata(self) -> dict[str, Any]:
+        if not self.metadata_path.exists():
+            return {}
+        try:
+            payload = json.loads(self.metadata_path.read_text(encoding="utf-8"))
+            if isinstance(payload, dict):
+                return payload
+            return {}
+        except Exception as exc:
+            logger.warning("URL model metadata parsing failed (%s): %s", self.metadata_path, exc)
+            return {}
+
+    def _validate_model(self, model: Any) -> None:
+        if not hasattr(model, "predict"):
+            raise RuntimeError("local-url-model-invalid: model missing predict()")
+        expected_feature_count = self._metadata.get("feature_count")
+        if expected_feature_count is not None:
+            try:
+                expected = int(expected_feature_count)
+            except (TypeError, ValueError):
+                expected = None
+            if expected is not None and expected != 30:
+                raise RuntimeError(
+                    "local-url-model-invalid: unsupported feature_count in metadata "
+                    f"({expected}); expected 30"
+                )

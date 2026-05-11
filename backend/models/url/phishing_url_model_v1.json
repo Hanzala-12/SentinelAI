@@ -1,0 +1,8 @@
+{
+  "artifact_version": "1.0.0",
+  "model_family": "logistic_regression",
+  "feature_count": 30,
+  "trained_on": "synthetic_feature_profiles",
+  "created_utc": "2026-05-11T00:00:00Z",
+  "runtime": "offline-local"
+}

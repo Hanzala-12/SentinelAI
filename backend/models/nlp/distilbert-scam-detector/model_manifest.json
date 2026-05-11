@@ -1,0 +1,7 @@
+{
+  "artifact_version": "1.0.0",
+  "model_source": "sshleifer/tiny-distilbert-base-uncased-finetuned-sst-2-english",
+  "task": "local-support-signal",
+  "runtime": "cpu-local-only",
+  "notes": "Used as a deterministic local transformer support signal; rule and evidence engines remain primary for scoring."
+}

@@ -48,6 +48,9 @@ class SignalExtractionResult:
     page_text_excerpt: str = ""
     fetch_error: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    interaction_events: list["InteractionReplayEvent"] = field(default_factory=list)
+    attack_patterns: list["AttackPatternLabel"] = field(default_factory=list)
+    social_engineering_insights: dict[str, Any] = field(default_factory=dict)
 
     @property
     def all_signals(self) -> list[SignalEvidence]:
@@ -70,6 +73,47 @@ class ReasoningWeights:
 
 
 @dataclass(slots=True)
+class TimelineEvent:
+    event_id: str
+    timestamp: str
+    stage: str
+    source: str
+    title: str
+    detail: str
+    severity: str
+    score_before: int
+    score_after: int
+    score_delta: int
+    confidence_before: float
+    confidence_after: float
+    classification_after: str
+    evidence_codes: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class InteractionReplayEvent:
+    step_id: str
+    timestamp: str
+    action: str
+    target: str
+    url_before: str
+    url_after: str
+    redirect_triggered: bool
+    new_indicator_codes: list[str] = field(default_factory=list)
+    dom_mutations: dict[str, Any] = field(default_factory=dict)
+    confidence_after: float = 0.0
+
+
+@dataclass(slots=True)
+class AttackPatternLabel:
+    code: str
+    title: str
+    description: str
+    confidence: float
+    evidence_codes: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
 class ReasoningResult:
     final_score: int
     classification: str
@@ -82,3 +126,6 @@ class ReasoningResult:
     recommended_actions: list[str]
     indicators: dict[str, list[str]]
     signal_counts: dict[str, int]
+    timeline: list[TimelineEvent] = field(default_factory=list)
+    attack_patterns: list[AttackPatternLabel] = field(default_factory=list)
+    confidence_progression: list[dict[str, Any]] = field(default_factory=list)

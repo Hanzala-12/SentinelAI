@@ -111,6 +111,38 @@ REDIRECT_SCRIPT_PATTERN = re.compile(
     r"window\.location|location\.href|location\.replace|window\.open|meta\s+http-equiv=['\"]refresh",
     re.IGNORECASE,
 )
+SUSPICIOUS_EVENT_LISTENER_PATTERN = re.compile(
+    r"addeventlistener\s*\(\s*['\"](submit|beforeunload|keydown|keypress|copy|paste|contextmenu)['\"]",
+    re.IGNORECASE,
+)
+CLIPBOARD_PATTERN = re.compile(
+    r"navigator\.clipboard|clipboarddata|document\.execcommand\s*\(\s*['\"]copy['\"]",
+    re.IGNORECASE,
+)
+NOTIFICATION_ABUSE_PATTERN = re.compile(
+    r"notification\.requestpermission|new\s+notification\s*\(|serviceworker\.register",
+    re.IGNORECASE,
+)
+ANTI_INTERACTION_PATTERN = re.compile(
+    r"onbeforeunload|preventdefault\s*\(\s*\)|returnvalue\s*=|event\.button\s*==\s*2|contextmenu",
+    re.IGNORECASE,
+)
+FULLSCREEN_COERCION_PATTERN = re.compile(
+    r"requestfullscreen|webkitrequestfullscreen|mozrequestfullscreen|msrequestfullscreen",
+    re.IGNORECASE,
+)
+POPUP_TRICK_PATTERN = re.compile(
+    r"window\.open\s*\(|alert\s*\(|confirm\s*\(|prompt\s*\(",
+    re.IGNORECASE,
+)
+SUSPENSION_LANGUAGE_PATTERN = re.compile(
+    r"\b(account\s+(suspended|locked|disabled)|security\s+hold|verify\s+immediately)\b",
+    re.IGNORECASE,
+)
+URGENCY_BANNER_PATTERN = re.compile(
+    r"\b(urgent|act now|final warning|expires (today|soon)|limited time)\b",
+    re.IGNORECASE,
+)
 
 
 class ThreatSignalExtractor:
@@ -411,8 +443,8 @@ class ThreatSignalExtractor:
         forms = soup.find_all("form")
         credential_forms = 0
         hidden_credential_forms = 0
-        external_credential_posts = 0
-        http_credential_posts = 0
+        hidden_password_fields = 0
+        invisible_login_overlays = 0
 
         for form in forms:
             action = (form.get("action") or "").strip()
@@ -423,6 +455,8 @@ class ThreatSignalExtractor:
                 input_name = (input_tag.get("name") or "").lower()
                 if input_type == "password" or any(token in input_name for token in CREDENTIAL_INPUT_NAMES):
                     credential_inputs += 1
+                if input_type == "password" and self._element_hidden(input_tag):
+                    hidden_password_fields += 1
 
             if credential_inputs == 0:
                 continue
@@ -431,6 +465,10 @@ class ThreatSignalExtractor:
             is_hidden = self._element_hidden(form)
             if is_hidden:
                 hidden_credential_forms += 1
+            style = (form.get("style") or "").lower()
+            class_name = " ".join(form.get("class") or []).lower()
+            if ("position:fixed" in style or "overlay" in class_name) and credential_inputs >= 2:
+                invisible_login_overlays += 1
 
             if action in {"", "about:blank"} or action.lower().startswith("javascript:"):
                 signals.append(
@@ -446,7 +484,6 @@ class ThreatSignalExtractor:
                     )
                 )
             elif self._is_external_destination(action, hostname):
-                external_credential_posts += 1
                 signals.append(
                     self._signal(
                         code="dom-external-credential-post",
@@ -460,7 +497,6 @@ class ThreatSignalExtractor:
                     )
                 )
             elif parsed.scheme == "https" and action.lower().startswith("http://"):
-                http_credential_posts += 1
                 signals.append(
                     self._signal(
                         code="dom-downgraded-form-post",
@@ -486,6 +522,42 @@ class ThreatSignalExtractor:
                     score_impact=21,
                     confidence=0.88,
                     value=hidden_credential_forms,
+                )
+            )
+
+        if hidden_password_fields > 0:
+            signals.append(
+                self._signal(
+                    code="dom-hidden-password-field",
+                    title="Hidden password input field",
+                    description=(
+                        "Detected password input elements with CSS/attribute visibility suppression, "
+                        "consistent with covert credential capture."
+                    ),
+                    severity="high",
+                    source="dom",
+                    category="credential-harvest",
+                    score_impact=23,
+                    confidence=0.91,
+                    value=hidden_password_fields,
+                )
+            )
+
+        if invisible_login_overlays > 0:
+            signals.append(
+                self._signal(
+                    code="dom-invisible-login-overlay",
+                    title="Invisible login overlay pattern",
+                    description=(
+                        "Detected fixed-position login form structures likely used as deceptive overlay "
+                        "elements to intercept credentials."
+                    ),
+                    severity="high",
+                    source="dom",
+                    category="credential-harvest",
+                    score_impact=22,
+                    confidence=0.84,
+                    value=invisible_login_overlays,
                 )
             )
 
@@ -612,7 +684,110 @@ class ThreatSignalExtractor:
                 )
             )
 
-        suspicious_brand_mentions = self._suspicious_brand_mentions(soup.get_text(separator=" ", strip=True), hostname)
+        if SUSPICIOUS_EVENT_LISTENER_PATTERN.search(lower_html):
+            signals.append(
+                self._signal(
+                    code="dom-suspicious-event-listeners",
+                    title="Suspicious event listener hooks",
+                    description=(
+                        "Detected event listeners tied to submit/contextmenu/copy lifecycle, often used "
+                        "for interaction tampering and data interception."
+                    ),
+                    severity="medium",
+                    source="dom",
+                    category="behavioral-manipulation",
+                    score_impact=14,
+                    confidence=0.78,
+                )
+            )
+
+        if CLIPBOARD_PATTERN.search(lower_html):
+            signals.append(
+                self._signal(
+                    code="dom-clipboard-manipulation",
+                    title="Clipboard manipulation logic",
+                    description=(
+                        "JavaScript includes clipboard read/write operations that can redirect pasted "
+                        "wallets, credentials, or MFA codes."
+                    ),
+                    severity="high",
+                    source="dom",
+                    category="behavioral-manipulation",
+                    score_impact=20,
+                    confidence=0.86,
+                )
+            )
+
+        if NOTIFICATION_ABUSE_PATTERN.search(lower_html):
+            signals.append(
+                self._signal(
+                    code="dom-notification-abuse",
+                    title="Browser notification abuse pattern",
+                    description=(
+                        "Detected notification permission/request script paths that are frequently abused "
+                        "for persistent phishing prompts."
+                    ),
+                    severity="medium",
+                    source="dom",
+                    category="behavioral-manipulation",
+                    score_impact=12,
+                    confidence=0.74,
+                )
+            )
+
+        if ANTI_INTERACTION_PATTERN.search(lower_html):
+            signals.append(
+                self._signal(
+                    code="dom-anti-user-interaction",
+                    title="Anti-user interaction controls",
+                    description=(
+                        "Detected script patterns that suppress navigation/interaction controls "
+                        "(context-menu blocking, unload traps, forced preventDefault)."
+                    ),
+                    severity="medium",
+                    source="dom",
+                    category="behavioral-manipulation",
+                    score_impact=14,
+                    confidence=0.79,
+                )
+            )
+
+        if FULLSCREEN_COERCION_PATTERN.search(lower_html):
+            signals.append(
+                self._signal(
+                    code="dom-forced-fullscreen-attempt",
+                    title="Forced fullscreen request logic",
+                    description=(
+                        "Page script attempts fullscreen mode to hide browser security context and "
+                        "increase impersonation realism."
+                    ),
+                    severity="high",
+                    source="dom",
+                    category="behavioral-manipulation",
+                    score_impact=18,
+                    confidence=0.82,
+                )
+            )
+
+        if POPUP_TRICK_PATTERN.search(lower_html):
+            signals.append(
+                self._signal(
+                    code="dom-deceptive-popup-pattern",
+                    title="Deceptive popup behavior",
+                    description=(
+                        "Detected popup/alert invocation patterns commonly used for fake session expiry "
+                        "or fake support dialogs."
+                    ),
+                    severity="medium",
+                    source="dom",
+                    category="social-engineering",
+                    score_impact=12,
+                    confidence=0.71,
+                )
+            )
+
+        page_text = soup.get_text(separator=" ", strip=True)
+        suspicious_brand_mentions = self._suspicious_brand_mentions(page_text, hostname)
         if suspicious_brand_mentions:
             signals.append(
                 self._signal(
@@ -630,6 +805,39 @@ class ThreatSignalExtractor:
                 )
             )
 
+        if SUSPENSION_LANGUAGE_PATTERN.search(page_text.lower()):
+            signals.append(
+                self._signal(
+                    code="dom-account-suspension-language",
+                    title="Account suspension coercion language",
+                    description=(
+                        "Page text contains account lock/suspension statements used to pressure rapid "
+                        "credential submission."
+                    ),
+                    severity="high",
+                    source="dom",
+                    category="social-engineering",
+                    score_impact=18,
+                    confidence=0.84,
+                )
+            )
+
+        if URGENCY_BANNER_PATTERN.search(page_text.lower()):
+            signals.append(
+                self._signal(
+                    code="dom-urgency-banner-language",
+                    title="Urgency banner phrasing",
+                    description=(
+                        "Detected urgency-driven banner language indicating deadline pressure tactics."
+                    ),
+                    severity="medium",
+                    source="dom",
+                    category="social-engineering",
+                    score_impact=11,
+                    confidence=0.72,
+                )
+            )
+
         hidden_elements = len(
             [
                 tag
@@ -637,6 +845,33 @@ class ThreatSignalExtractor:
                 if self._element_hidden(tag) and tag.name not in {"script", "style", "meta", "link"}
             ]
         )
+        fake_modal_candidates = 0
+        for tag in soup.find_all(True):
+            class_name = " ".join(tag.get("class") or []).lower()
+            style = (tag.get("style") or "").lower()
+            has_modal_identity = any(token in class_name for token in ("modal", "popup", "overlay", "dialog"))
+            if not has_modal_identity:
+                continue
+            if "position:fixed" in style and "z-index" in style:
+                fake_modal_candidates += 1
+        if fake_modal_candidates > 0:
+            signals.append(
+                self._signal(
+                    code="dom-fake-modal-injection",
+                    title="Potential fake modal injection",
+                    description=(
+                        "Detected high-z-index fixed modal/overlay structures that may impersonate "
+                        "security prompts or account re-authentication dialogs."
+                    ),
+                    severity="medium",
+                    source="dom",
+                    category="social-engineering",
+                    score_impact=13,
+                    confidence=0.76,
+                    value=fake_modal_candidates,
+                )
+            )
+
         if hidden_elements >= 12:
             signals.append(
                 self._signal(
@@ -713,15 +948,20 @@ class ThreatSignalExtractor:
         ]
 
         for code, title, pattern, severity, category, impact in pattern_catalog:
-            matches = re.findall(pattern, lowered, flags=re.IGNORECASE)
-            if not matches:
+            raw_matches = re.findall(pattern, lowered, flags=re.IGNORECASE)
+            if not raw_matches:
                 continue
+            matches = self._normalize_regex_matches(raw_matches)
             scaled_impact = min(28, impact + max(0, len(matches) - 1) * 2)
+            preview = ", ".join(matches[:3]) if matches else "pattern match"
             signals.append(
                 self._signal(
                     code=code,
                     title=title,
-                    description=f"Detected {len(matches)} matching language cues linked to phishing/scam campaigns.",
+                    description=(
+                        f"Detected {len(matches)} phishing-linked language matches "
+                        f"({preview})."
+                    ),
                     severity=severity,
                     source="content",
                     category=category,
@@ -738,7 +978,10 @@ class ThreatSignalExtractor:
                 self._signal(
                     code="content-emotional-amplification",
                     title="Emotional amplification patterns",
-                    description="Message uses excessive uppercase punctuation or intensity markers to coerce fast action.",
+                    description=(
+                        "Detected coercive formatting (uppercase ratio/exclamation density) "
+                        "associated with social-engineering pressure."
+                    ),
                     severity="low",
                     source="content",
                     category="social-engineering",
@@ -868,6 +1111,19 @@ class ThreatSignalExtractor:
             return 0.0
         uppercase = [char for char in letters if char.isupper()]
         return len(uppercase) / len(letters)
+
+    def _normalize_regex_matches(self, matches: list[Any]) -> list[str]:
+        normalized: list[str] = []
+        for match in matches:
+            if isinstance(match, tuple):
+                parts = [str(item).strip() for item in match if item]
+                if parts:
+                    normalized.append(" ".join(parts))
+            else:
+                token = str(match).strip()
+                if token:
+                    normalized.append(token)
+        return normalized
 
     def _signal(
         self,

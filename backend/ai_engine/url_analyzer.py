@@ -19,8 +19,12 @@ class UrlAnalysisResult:
 
 
 class UrlAnalyzer:
-    def __init__(self) -> None:
-        self.model = PretrainedPhishingUrlModel()
+    def __init__(
+        self,
+        model_path: str | None = None,
+        metadata_path: str | None = None,
+    ) -> None:
+        self.model = PretrainedPhishingUrlModel(model_path=model_path, metadata_path=metadata_path)
 
     def analyze(self, url: str) -> UrlAnalysisResult:
         normalized_url = url if url.startswith(("http://", "https://")) else f"https://{url}"

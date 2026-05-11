@@ -24,12 +24,12 @@ async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     try:
         svc = AnalysisService()
-        # warm up URL model (downloads pretrained classifier if missing)
+        # warm up URL model from local artifacts
         try:
             svc.url_analyzer.model._load_model()
         except Exception:
             logger.warning("URL model warmup failed, continuing startup")
-        # warm up NLP model (DistilBERT) to ensure HF models are cached on first run
+        # warm up local NLP model inference path
         try:
             svc.text_analyzer._load_model()
         except Exception:

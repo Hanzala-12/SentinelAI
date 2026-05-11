@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from datetime import datetime, timedelta, timezone
 
 from backend.intelligence.models import (
     SEVERITY_RANK,
@@ -8,7 +9,15 @@ from backend.intelligence.models import (
     ReasoningWeights,
     SignalEvidence,
     SignalExtractionResult,
+    TimelineEvent,
 )
+
+CLASSIFICATION_RANK = {
+    "safe": 0,
+    "suspicious": 1,
+    "dangerous": 2,
+    "critical": 3,
+}
 
 
 class ThreatReasoningEngine:
@@ -88,6 +97,23 @@ class ThreatReasoningEngine:
             "low": severity_counter.get("low", 0),
             "info": severity_counter.get("info", 0),
         }
+        timeline = self._build_timeline(
+            extraction=extraction,
+            weighted_components=weighted_components,
+            final_score=self._clamp_score(final_score),
+            final_confidence=confidence,
+        )
+        confidence_progression = [
+            {
+                "event_id": event.event_id,
+                "timestamp": event.timestamp,
+                "score": event.score_after,
+                "confidence": event.confidence_after,
+                "classification": event.classification_after,
+                "stage": event.stage,
+            }
+            for event in timeline
+        ]
 
         return ReasoningResult(
             final_score=self._clamp_score(final_score),
@@ -101,6 +127,9 @@ class ThreatReasoningEngine:
             recommended_actions=actions,
             indicators=indicators,
             signal_counts=signal_counts,
+            timeline=timeline,
+            attack_patterns=extraction.attack_patterns,
+            confidence_progression=confidence_progression,
         )
 
     def _aggregate(self, signals: list[SignalEvidence]) -> int:
@@ -181,6 +210,12 @@ class ThreatReasoningEngine:
             actions.append("Capture page artifacts and inspect script payloads in a sandbox before user access.")
         if "url-idn-spoof-risk" in evidence_codes:
             actions.append("Render and review Punycode representation to detect homoglyph spoofing attempts.")
+        if "interaction-triggered-redirect" in evidence_codes:
+            actions.append("Block click-through navigation path and monitor for staged redirect infrastructure.")
+        if "interaction-hidden-credential-reveal" in evidence_codes:
+            actions.append("Treat revealed post-click credential flow as active phishing and isolate immediately.")
+        if "interaction-overlay-injection" in evidence_codes:
+            actions.append("Capture full-page screenshots and DOM snapshots for deceptive overlay attribution.")
 
         if classification == "Critical":
             actions.extend(
@@ -279,3 +314,351 @@ class ThreatReasoningEngine:
         for name in active_components:
             adjusted[name] = base_weights[name] / active_weight_total
         return adjusted
+
+    def _build_timeline(
+        self,
+        *,
+        extraction: SignalExtractionResult,
+        weighted_components: dict[str, float],
+        final_score: int,
+        final_confidence: float,
+    ) -> list[TimelineEvent]:
+        timeline: list[TimelineEvent] = []
+        now = datetime.now(timezone.utc)
+        running_score = 0
+        running_confidence = 0.2
+        running_classification = self._classify(running_score)
+
+        def emit(
+            *,
+            stage: str,
+            source: str,
+            title: str,
+            detail: str,
+            severity: str,
+            score_delta: int,
+            evidence_codes: list[str] | None = None,
+        ) -> None:
+            nonlocal running_score, running_classification, running_confidence
+            before = running_score
+            confidence_before = running_confidence
+            previous_classification = running_classification
+            running_score = self._clamp_score(running_score + max(0, score_delta))
+            running_confidence = self._next_confidence(
+                running_confidence=running_confidence,
+                severity=severity,
+                score_delta=score_delta,
+            )
+            running_classification = self._classify(running_score)
+            event_index = len(timeline)
+            timestamp = (now + timedelta(seconds=event_index)).isoformat()
+            timeline.append(
+                TimelineEvent(
+                    event_id=f"evt-{event_index + 1:03d}",
+                    timestamp=timestamp,
+                    stage=stage,
+                    source=source,
+                    title=title,
+                    detail=detail,
+                    severity=severity,
+                    score_before=before,
+                    score_after=running_score,
+                    score_delta=max(0, score_delta),
+                    confidence_before=round(confidence_before, 2),
+                    confidence_after=round(running_confidence, 2),
+                    classification_after=running_classification,
+                    evidence_codes=evidence_codes or [],
+                )
+            )
+
+            if CLASSIFICATION_RANK.get(running_classification.lower(), 0) > CLASSIFICATION_RANK.get(
+                previous_classification.lower(), 0
+            ):
+                escalation_index = len(timeline)
+                escalation_timestamp = (now + timedelta(seconds=escalation_index)).isoformat()
+                timeline.append(
+                    TimelineEvent(
+                        event_id=f"evt-{escalation_index + 1:03d}",
+                        timestamp=escalation_timestamp,
+                        stage="escalation",
+                        source="reasoning",
+                        title=f"Threat escalated to {running_classification.upper()}",
+                        detail=(
+                            f"Accumulated evidence raised score from {before}/100 to "
+                            f"{running_score}/100."
+                        ),
+                        severity=self._classification_severity(running_classification),
+                        score_before=running_score,
+                        score_after=running_score,
+                        score_delta=0,
+                        confidence_before=round(running_confidence, 2),
+                        confidence_after=round(running_confidence, 2),
+                        classification_after=running_classification,
+                        evidence_codes=evidence_codes or [],
+                    )
+                )
+
+        emit(
+            stage="collection",
+            source="system",
+            title="Investigation initialized",
+            detail=f"Started evidence collection for {extraction.normalized_url}.",
+            severity="info",
+            score_delta=0,
+        )
+
+        if extraction.url_signals:
+            emit(
+                stage="url-analysis",
+                source="url",
+                title="URL structure analysis completed",
+                detail=f"Detected {len(extraction.url_signals)} URL anomalies.",
+                severity="low",
+                score_delta=2,
+                evidence_codes=[signal.code for signal in extraction.url_signals[:4]],
+            )
+            for signal in extraction.url_signals:
+                emit(
+                    stage="url-analysis",
+                    source="url",
+                    title=signal.title,
+                    detail=signal.description,
+                    severity=signal.severity,
+                    score_delta=self._timeline_delta(signal, source_weight=0.24),
+                    evidence_codes=[signal.code],
+                )
+
+        if extraction.redirect_chain:
+            emit(
+                stage="delivery-analysis",
+                source="network",
+                title="Redirect chain observed",
+                detail=(
+                    f"Navigation followed {len(extraction.redirect_chain)} redirect hops before final "
+                    "content was rendered."
+                ),
+                severity="high" if len(extraction.redirect_chain) >= 2 else "medium",
+                score_delta=min(18, len(extraction.redirect_chain) * 6),
+                evidence_codes=["redirect-chain"],
+            )
+
+        if extraction.dom_signals:
+            emit(
+                stage="dom-analysis",
+                source="dom",
+                title="DOM behavior analysis completed",
+                detail=f"Detected {len(extraction.dom_signals)} suspicious DOM/JS behaviors.",
+                severity="medium",
+                score_delta=3,
+                evidence_codes=[signal.code for signal in extraction.dom_signals[:4]],
+            )
+            for signal in extraction.dom_signals:
+                emit(
+                    stage="dom-analysis",
+                    source="dom",
+                    title=signal.title,
+                    detail=signal.description,
+                    severity=signal.severity,
+                    score_delta=self._timeline_delta(signal, source_weight=0.26),
+                    evidence_codes=[signal.code],
+                )
+
+        if extraction.interaction_events:
+            emit(
+                stage="interaction-simulation",
+                source="interaction",
+                title="Controlled interaction simulation completed",
+                detail=(
+                    f"Executed {len(extraction.interaction_events)} interaction probes to uncover "
+                    "dynamic phishing behavior."
+                ),
+                severity="medium",
+                score_delta=4,
+                evidence_codes=["interaction-simulation"],
+            )
+            for event in extraction.interaction_events:
+                mutation_summary = ", ".join(
+                    f"{key}={value}"
+                    for key, value in event.dom_mutations.items()
+                    if isinstance(value, int) and value > 0
+                )
+                detail = (
+                    f"Action '{event.action}' on target '{event.target}' "
+                    f"{'triggered redirect' if event.redirect_triggered else 'completed without redirect'}."
+                )
+                if mutation_summary:
+                    detail += f" DOM mutations: {mutation_summary}."
+                emit(
+                    stage="interaction-simulation",
+                    source="interaction",
+                    title=f"Interaction step {event.step_id}",
+                    detail=detail,
+                    severity="high" if event.new_indicator_codes else "low",
+                    score_delta=8 if event.new_indicator_codes else 2,
+                    evidence_codes=event.new_indicator_codes or [event.step_id],
+                )
+
+        if extraction.content_signals:
+            emit(
+                stage="content-analysis",
+                source="content",
+                title="Content and social-engineering analysis completed",
+                detail=f"Detected {len(extraction.content_signals)} phishing-language indicators.",
+                severity="medium",
+                score_delta=2,
+                evidence_codes=[signal.code for signal in extraction.content_signals[:4]],
+            )
+            for signal in extraction.content_signals:
+                emit(
+                    stage="content-analysis",
+                    source="content",
+                    title=signal.title,
+                    detail=signal.description,
+                    severity=signal.severity,
+                    score_delta=self._timeline_delta(signal, source_weight=0.2),
+                    evidence_codes=[signal.code],
+                )
+
+        if extraction.model_signals:
+            emit(
+                stage="model-correlation",
+                source="model",
+                title="Local model inference correlated",
+                detail=f"Integrated {len(extraction.model_signals)} model-backed indicators.",
+                severity="medium",
+                score_delta=2,
+                evidence_codes=[signal.code for signal in extraction.model_signals[:4]],
+            )
+            for signal in extraction.model_signals:
+                emit(
+                    stage="model-correlation",
+                    source="model",
+                    title=signal.title,
+                    detail=signal.description,
+                    severity=signal.severity,
+                    score_delta=self._timeline_delta(signal, source_weight=0.18),
+                    evidence_codes=[signal.code],
+                )
+
+        if extraction.reputation_signals:
+            emit(
+                stage="intel-correlation",
+                source="reputation",
+                title="Threat intelligence correlation completed",
+                detail=f"Integrated {len(extraction.reputation_signals)} provider reputation findings.",
+                severity="medium",
+                score_delta=2,
+                evidence_codes=[signal.code for signal in extraction.reputation_signals[:4]],
+            )
+            for signal in extraction.reputation_signals:
+                emit(
+                    stage="intel-correlation",
+                    source="reputation",
+                    title=signal.title,
+                    detail=signal.description,
+                    severity=signal.severity,
+                    score_delta=self._timeline_delta(signal, source_weight=0.16),
+                    evidence_codes=[signal.code],
+                )
+
+        for component, contribution in sorted(weighted_components.items(), key=lambda item: item[1], reverse=True)[:3]:
+            emit(
+                stage="reasoning",
+                source="reasoning",
+                title=f"Weighted component contribution: {component}",
+                detail=f"Component contributed {contribution:.1f} points to final score aggregation.",
+                severity="info",
+                score_delta=max(1, int(round(contribution * 0.15))),
+                evidence_codes=[component],
+            )
+
+        if running_score != final_score:
+            delta = final_score - running_score
+            if delta > 0:
+                emit(
+                    stage="reasoning",
+                    source="reasoning",
+                    title="Final evidence normalization",
+                    detail="Adjusted accumulated score to normalized threat score.",
+                    severity="info",
+                    score_delta=delta,
+                    evidence_codes=["normalization"],
+                )
+            else:
+                before = running_score
+                confidence_before = running_confidence
+                running_score = final_score
+                running_confidence = max(running_confidence, final_confidence)
+                timeline.append(
+                    TimelineEvent(
+                        event_id=f"evt-{len(timeline) + 1:03d}",
+                        timestamp=(now + timedelta(seconds=len(timeline))).isoformat(),
+                        stage="reasoning",
+                        source="reasoning",
+                        title="Final evidence normalization",
+                        detail="Applied normalization cap to finalize threat score.",
+                        severity="info",
+                        score_before=before,
+                        score_after=final_score,
+                        score_delta=0,
+                        confidence_before=round(confidence_before, 2),
+                        confidence_after=round(running_confidence, 2),
+                        classification_after=self._classify(final_score),
+                        evidence_codes=["normalization"],
+                    )
+                )
+        else:
+            running_confidence = max(running_confidence, final_confidence)
+
+        timeline.append(
+            TimelineEvent(
+                event_id=f"evt-{len(timeline) + 1:03d}",
+                timestamp=(now + timedelta(seconds=len(timeline))).isoformat(),
+                stage="conclusion",
+                source="reasoning",
+                title=f"Investigation concluded: {self._classify(final_score).upper()}",
+                detail=f"Final threat score computed as {final_score}/100.",
+                severity=self._classification_severity(self._classify(final_score)),
+                score_before=final_score,
+                score_after=final_score,
+                score_delta=0,
+                confidence_before=round(running_confidence, 2),
+                confidence_after=round(max(running_confidence, final_confidence), 2),
+                classification_after=self._classify(final_score),
+                evidence_codes=["final-score"],
+            )
+        )
+        return timeline
+
+    def _timeline_delta(self, signal: SignalEvidence, source_weight: float) -> int:
+        base = signal.score_impact * source_weight
+        confidence_factor = max(0.45, min(1.0, signal.confidence))
+        severity_bonus = {
+            "critical": 3,
+            "high": 2,
+            "medium": 1,
+            "low": 0,
+            "info": 0,
+        }.get(signal.severity, 0)
+        return min(20, max(1, int(round(base * confidence_factor)) + severity_bonus))
+
+    def _classification_severity(self, classification: str) -> str:
+        normalized = classification.lower()
+        if normalized == "critical":
+            return "critical"
+        if normalized == "dangerous":
+            return "high"
+        if normalized == "suspicious":
+            return "medium"
+        return "info"
+
+    def _next_confidence(self, running_confidence: float, severity: str, score_delta: int) -> float:
+        severity_boost = {
+            "critical": 0.11,
+            "high": 0.09,
+            "medium": 0.07,
+            "low": 0.04,
+            "info": 0.02,
+        }.get(severity, 0.03)
+        score_factor = min(0.08, max(0.0, score_delta) * 0.002)
+        return min(0.97, running_confidence + severity_boost + score_factor)

@@ -1,6 +1,14 @@
 from __future__ import annotations
 
-from backend.api.schemas.scans import EvidenceItem, TechnicalFindings, ThreatExplanation, ThreatReport
+from backend.api.schemas.scans import (
+    AttackPattern,
+    EvidenceItem,
+    InteractionReplayEvent,
+    TechnicalFindings,
+    ThreatExplanation,
+    ThreatReport,
+    TimelineEvent,
+)
 from backend.intelligence.models import ReasoningResult, SignalEvidence, SignalExtractionResult
 
 
@@ -19,24 +27,51 @@ class ExplainabilityService:
         if not pattern_codes:
             pattern_codes = ["no-strong-patterns"]
 
-        segments = [
-            f"Threat level is {reasoning.classification} with score {reasoning.final_score}/100.",
-            reasoning.summary,
-        ]
+        segments = [f"Threat classification: {reasoning.classification} ({reasoning.final_score}/100)."]
+        if reasoning.top_evidence:
+            lead = reasoning.top_evidence[0]
+            segments.append(
+                "Lead indicator: "
+                f"{lead.title} [{lead.code}] with confidence {round(lead.confidence, 2)}."
+            )
+            segments.append(
+                "Correlated evidence count: "
+                f"{reasoning.signal_counts.get('total', 0)} signals across URL, DOM, content, model, and reputation."
+            )
+        segments.append(reasoning.summary)
         if url:
             segments.append(f"Target analyzed: {url}.")
         if text_model_name:
-            segments.append(f"NLP support model: {text_model_name}.")
+            segments.append(f"NLP inference artifact: {text_model_name}.")
         if model_issue:
-            segments.append(f"Model fallback note: {model_issue}.")
+            segments.append(f"URL model runtime note: {model_issue}.")
         if intel_notes:
             segments.extend(intel_notes[:2])
         if extraction.fetch_error:
-            segments.append("Remote page fetch failed; DOM evidence may be partial.")
+            segments.append(f"DOM collection warning: {extraction.fetch_error}.")
         if reasoning.top_evidence:
             segments.append(
-                "Primary evidence: " + "; ".join(signal.title for signal in reasoning.top_evidence[:4]) + "."
+                "Primary forensic findings: "
+                + "; ".join(
+                    f"{signal.title} ({signal.source}/{signal.severity}, impact {signal.score_impact})"
+                    for signal in reasoning.top_evidence[:4]
+                )
+                + "."
             )
+        if extraction.interaction_events:
+            segments.append(
+                f"Interaction simulation executed {len(extraction.interaction_events)} controlled probes, "
+                "revealing dynamic phishing behavior not present in static inspection."
+            )
+        if extraction.attack_patterns:
+            segments.append(
+                "Likely attack patterns: "
+                + ", ".join(pattern.title for pattern in extraction.attack_patterns[:4])
+                + "."
+            )
+        narrative = extraction.social_engineering_insights.get("narrative_summary")
+        if narrative:
+            segments.append(str(narrative))
 
         return ThreatExplanation(
             explanation=" ".join(segment.strip() for segment in segments if segment.strip()),
@@ -59,6 +94,10 @@ class ExplainabilityService:
             indicators=reasoning.indicators,
             signal_counts=reasoning.signal_counts,
             evidence=[self._as_evidence_item(signal) for signal in reasoning.top_evidence],
+            attack_patterns=[self._as_attack_pattern(item) for item in reasoning.attack_patterns],
+            confidence_progression=reasoning.confidence_progression,
+            social_engineering_analysis=extraction.social_engineering_insights,
+            timeline=[self._as_timeline_item(event) for event in reasoning.timeline],
             fetch_error=extraction.fetch_error,
         )
 
@@ -72,6 +111,9 @@ class ExplainabilityService:
             content_signals=[self._as_evidence_item(signal) for signal in extraction.content_signals],
             reputation_signals=[self._as_evidence_item(signal) for signal in extraction.reputation_signals],
             model_signals=[self._as_evidence_item(signal) for signal in extraction.model_signals],
+            interaction_events=[self._as_interaction_event(item) for item in extraction.interaction_events],
+            attack_patterns=[self._as_attack_pattern(item) for item in extraction.attack_patterns],
+            social_engineering_analysis=extraction.social_engineering_insights,
             metadata=extraction.metadata,
         )
 
@@ -86,4 +128,45 @@ class ExplainabilityService:
             score_impact=signal.score_impact,
             confidence=signal.confidence,
             value=signal.value,
+        )
+
+    def _as_timeline_item(self, event) -> TimelineEvent:
+        return TimelineEvent(
+            event_id=event.event_id,
+            timestamp=event.timestamp,
+            stage=event.stage,
+            source=event.source,
+            title=event.title,
+            detail=event.detail,
+            severity=event.severity,
+            score_before=event.score_before,
+            score_after=event.score_after,
+            score_delta=event.score_delta,
+            confidence_before=event.confidence_before,
+            confidence_after=event.confidence_after,
+            classification_after=event.classification_after,
+            evidence_codes=event.evidence_codes,
+        )
+
+    def _as_attack_pattern(self, pattern) -> AttackPattern:
+        return AttackPattern(
+            code=pattern.code,
+            title=pattern.title,
+            description=pattern.description,
+            confidence=pattern.confidence,
+            evidence_codes=pattern.evidence_codes,
+        )
+
+    def _as_interaction_event(self, event) -> InteractionReplayEvent:
+        return InteractionReplayEvent(
+            step_id=event.step_id,
+            timestamp=event.timestamp,
+            action=event.action,
+            target=event.target,
+            url_before=event.url_before,
+            url_after=event.url_after,
+            redirect_triggered=event.redirect_triggered,
+            new_indicator_codes=event.new_indicator_codes,
+            dom_mutations=event.dom_mutations,
+            confidence_after=event.confidence_after,
         )
